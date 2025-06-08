@@ -1,0 +1,31 @@
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: ${JOB_NAME}
+  annotations:
+    run.googleapis.com/launch-stage: BETA
+spec:
+  template:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          taskTimeoutSeconds: ${TASK_TIMEOUT}
+          containers:
+          - name: anpi-call-scheduler
+            image: gcr.io/${PROJECT_ID}/anpi-call-scheduler:latest
+            resources:
+              limits:
+                cpu: "${CPU}"
+                memory: "${MEMORY}"
+            env:
+            - name: GOOGLE_CLOUD_PROJECT
+              value: ${PROJECT_ID}
+            - name: ENVIRONMENT
+              value: ${ENVIRONMENT}
+            - name: LOG_LEVEL
+              value: ${LOG_LEVEL}
+            - name: CLOUD_TASKS_LOCATION
+              value: asia-northeast1
+            - name: CLOUD_TASKS_QUEUE
+              value: anpi-call-queue

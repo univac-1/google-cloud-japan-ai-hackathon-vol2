@@ -1,0 +1,8 @@
+# 基本的な依存関係
+google-cloud-tasks==2.16.4
+google-auth==2.29.0
+requests==2.31.0
+
+# 将来的に必要になる可能性のあるライブラリ
+# google-cloud-logging==3.8.0
+# google-cloud-storage==2.10.0

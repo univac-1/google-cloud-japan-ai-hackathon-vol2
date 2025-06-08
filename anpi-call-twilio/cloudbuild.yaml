@@ -1,0 +1,33 @@
+steps:
+  # Docker イメージをビルド
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'build',
+      '-t', 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/speech-assistant/speech-assistant-openai:latest',
+      '.'
+    ]
+
+  # Docker イメージをArtifact Registryにプッシュ
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/speech-assistant/speech-assistant-openai:latest']
+
+  # Cloud Runにデプロイ
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    env:
+      - 'OPENAI_API_KEY=$_OPENAI_API_KEY'
+    args: [
+      'run', 'deploy', 'speech-assistant-openai',
+      '--image', 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/speech-assistant/speech-assistant-openai:latest',
+      '--region', 'asia-northeast1',
+      '--platform', 'managed',
+      '--allow-unauthenticated',
+      '--port', '8080',
+      '--memory', '1Gi',
+      '--cpu', '1',
+      '--max-instances', '10',
+      '--set-env-vars', 'OPENAI_API_KEY=$_OPENAI_API_KEY'
+    ]
+
+options:
+  logging: CLOUD_LOGGING_ONLY

@@ -1,0 +1,38 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: speech-assistant-openai
+  annotations:
+    run.googleapis.com/ingress: all
+    run.googleapis.com/execution-environment: gen2
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: '10'
+        autoscaling.knative.dev/minScale: '0'
+        run.googleapis.com/cpu-throttling: 'false'
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      containerConcurrency: 80
+      timeoutSeconds: 3600
+      containers:
+      - image: gcr.io/PROJECT_ID/speech-assistant-openai:latest
+        ports:
+        - name: http1
+          containerPort: 8080
+        env:
+        - name: PORT
+          value: '8080'
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: openai-api-key
+              key: key
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+          requests:
+            cpu: 1000m
+            memory: 1Gi

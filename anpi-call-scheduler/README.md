@@ -4,10 +4,142 @@
 
 ## 機能
 
-- PostgreSQLデータベースからユーザーの通話設定を取得
+- MySQL（Cloud SQL）データベースからユーザーの通話設定を取得
 - 曜日と時間に基づいてタスクの実行日時を計算
 - Google Cloud Tasks にタスクを登録
 - Cloud Run Jobs としてスケジュール実行
+- Cloud Scheduler による定期実行（毎時0分）
+
+## 🚀 クイックデプロイ
+
+### 完全自動デプロイ（推奨）
+
+```bash
+# 全設定を自動化
+./deploy-complete.sh
+```
+
+このスクリプトは以下をすべて自動実行します：
+1. 必要なAPIの有効化
+2. Cloud Tasksキューの作成
+3. Docker イメージのビルド・プッシュ
+4. Cloud Run Job のデプロイ
+5. サービスアカウント権限の設定
+6. Cloud Scheduler の作成・設定
+7. 動作確認テスト
+
+### Cloud Scheduler のみ設定
+
+```bash
+# Cloud Scheduler のみ作成・設定
+./setup-scheduler.sh
+```
+
+## 📁 スクリプトファイル
+
+| ファイル名 | 用途 | 説明 |
+|-----------|------|------|
+| `deploy-complete.sh` | 完全デプロイ | 全工程を自動化する統合スクリプト |
+| `setup-scheduler.sh` | Scheduler設定 | Cloud Scheduler の作成・管理専用 |
+| `deploy-application.sh` | アプリデプロイ | 既存のCloud Build用スクリプト |
+| `setup-infrastructure.sh` | インフラ設定 | インフラストラクチャのみ設定 |
+
+## 🔧 個別コンポーネント管理
+
+### Cloud Scheduler の管理
+
+```bash
+# スケジューラー状態確認
+gcloud scheduler jobs describe anpi-call-scheduler-job --location=asia-northeast1
+
+# 手動実行
+gcloud scheduler jobs run anpi-call-scheduler-job --location=asia-northeast1
+
+# スケジューラー削除
+gcloud scheduler jobs delete anpi-call-scheduler-job --location=asia-northeast1
+```
+
+### Cloud Run Job の管理
+
+```bash
+# Job手動実行
+gcloud run jobs execute anpi-call-create-task-job --region=asia-northeast1
+
+# 実行履歴確認
+gcloud run jobs executions list --job=anpi-call-create-task-job --region=asia-northeast1 --limit=5
+
+# Job詳細確認
+gcloud run jobs describe anpi-call-create-task-job --region=asia-northeast1
+```
+
+### Cloud Tasks の確認
+
+```bash
+# タスクリスト表示
+gcloud tasks list --queue=anpi-call-queue --location=asia-northeast1
+
+# キュー状態確認
+gcloud tasks queues describe anpi-call-queue --location=asia-northeast1
+```
+
+## 📊 システム構成
+
+```
+[Cloud Scheduler] → [Cloud Run Job] → [Cloud SQL] → [Cloud Tasks]
+      ↓                    ↓               ↓           ↓
+  毎時0分実行         ユーザー情報取得    スケジュール   安否確認通話タスク
+```
+
+### 実行フロー
+
+1. **Cloud Scheduler**: 毎時0分に Cloud Run Job を実行
+2. **Cloud Run Job**: データベースから次週のスケジュールを取得
+3. **Cloud SQL**: ユーザーの通話設定（曜日・時刻）を提供
+4. **Cloud Tasks**: 個別のスケジュールタスクを作成
+5. **Webhook実行**: 指定時刻に安否確認通話を実行
+
+## 📝 設定ファイル
+
+### job.yaml（Cloud Run Job設定）
+
+```yaml
+# Cloud Run Job の完全な設定
+# - 環境変数設定
+# - Cloud SQL接続設定
+# - リソース制限
+# - サービスアカウント設定
+```
+
+### main.py（アプリケーションロジック）
+
+```python
+# 主要機能:
+# - データベース接続（TCP/Unix Socket対応）
+# - ユーザー情報取得
+# - スケジュール計算
+# - Cloud Tasks作成
+```
+
+## 🔐 権限設定
+
+### 必要なサービスアカウント権限
+
+```bash
+# Cloud Run Invoker（Scheduler→Job実行用）
+gcloud projects add-iam-policy-binding univac-aiagent \
+  --member="serviceAccount:894704565810-compute@developer.gserviceaccount.com" \
+  --role="roles/run.invoker"
+
+# Cloud Run Developer（Job管理用）
+gcloud projects add-iam-policy-binding univac-aiagent \
+  --member="serviceAccount:894704565810-compute@developer.gserviceaccount.com" \
+  --role="roles/run.developer"
+
+# Cloud Tasks Enqueuer（タスク作成用）
+gcloud projects add-iam-policy-binding univac-aiagent \
+  --member="serviceAccount:894704565810-compute@developer.gserviceaccount.com" \
+  --role="roles/cloudtasks.enqueuer"
+```
 
 ## 開発環境
 

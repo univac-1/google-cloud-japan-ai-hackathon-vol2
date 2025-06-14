@@ -1,0 +1,50 @@
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: ${JOB_NAME:-anpi-call-create-task-job}
+  annotations:
+    run.googleapis.com/launch-stage: BETA
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/cloudsql-instances: "${GOOGLE_CLOUD_PROJECT:-univac-aiagent}:asia-northeast1:cloudsql-01"
+    spec:
+      template:
+        spec:
+          maxRetries: ${MAX_RETRIES:-1}
+          timeoutSeconds: ${TASK_TIMEOUT:-300}
+          containers:
+          - name: anpi-call-scheduler
+            image: ${IMAGE_URL:-gcr.io/univac-aiagent/anpi-call-scheduler:latest}
+            resources:
+              limits:
+                cpu: "${CPU:-1}"
+                memory: "${MEMORY:-512Mi}"
+            env:
+            - name: GOOGLE_CLOUD_PROJECT
+              value: "${GOOGLE_CLOUD_PROJECT:-univac-aiagent}"
+            - name: ENVIRONMENT
+              value: "${ENVIRONMENT:-development}"
+            - name: LOG_LEVEL
+              value: "${LOG_LEVEL:-debug}"
+            - name: CLOUD_TASKS_LOCATION
+              value: "${CLOUD_TASKS_LOCATION:-asia-northeast1}"
+            - name: CLOUD_TASKS_QUEUE
+              value: "${CLOUD_TASKS_QUEUE:-anpi-call-queue}"
+            - name: ANPI_CALL_URL
+              value: "${ANPI_CALL_URL:-https://httpbin.org/post}"
+            - name: DB_HOST
+              value: "/cloudsql/${GOOGLE_CLOUD_PROJECT:-univac-aiagent}:asia-northeast1:cloudsql-01"
+            - name: DB_PORT
+              value: "3306"
+            - name: DB_USER
+              value: "${DB_USER:-default}"
+            - name: DB_PASSWORD
+              value: "${DB_PASSWORD:-TH8V+cqXJOPqRl3Ez4RAg+mQvnlkQmqh/r14epk2BT0=}"
+            - name: DB_NAME
+              value: "${DB_NAME:-default}"
+            - name: USE_CLOUD_SQL
+              value: "true"
+            - name: IS_CLOUD_RUN_JOB
+              value: "true"

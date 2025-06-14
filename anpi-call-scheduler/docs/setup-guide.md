@@ -69,10 +69,10 @@ nano .env
 
 ```bash
 # デプロイスクリプトに実行権限を付与
-chmod +x deploy.sh
+chmod +x deploy-complete.sh
 
 # 初回デプロイを実行
-./deploy.sh
+./deploy-complete.sh
 ```
 
 ## 設定パラメータ

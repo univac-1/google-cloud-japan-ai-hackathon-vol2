@@ -34,20 +34,31 @@
 
 ```
 anpi-call-scheduler/
-├── main.py                      # メインのバッチ処理アプリケーション
-├── Dockerfile                   # Dockerイメージ定義
-├── requirements.txt             # Python依存関係
-├── job.yaml                     # Cloud Run Job設定
+├── deploy-complete.sh           # 統合デプロイスクリプト（推奨）
+├── test_db_connection.py        # データベース接続テスト
 │
-├── deploy-complete.sh           # 完全自動デプロイスクリプト（推奨）
-├── deploy-application.sh        # アプリケーションデプロイ
-├── setup-infrastructure.sh     # インフラ設定
+├── cloud-run-jobs/              # Cloud Run Jobs専用ディレクトリ
+│   ├── main.py                  # バッチ処理アプリケーション
+│   ├── Dockerfile               # Cloud Run Jobs用Dockerイメージ
+│   ├── requirements.txt         # Python依存関係
+│   ├── cloudbuild.yaml          # Cloud Build設定
+│   ├── job.yaml                 # Cloud Run Job設定
+│   ├── deploy-job.sh            # Cloud Run Jobs専用デプロイ
+│   ├── job-functions.sh         # 共通関数ライブラリ
+│   ├── job-config.env           # ジョブ設定
+│   └── README.md                # Cloud Run Jobs使用方法
 │
 ├── cloud-scheduler/             # Cloud Scheduler設定
-│   ├── scheduler-functions.sh  # 共通関数ライブラリ
-│   ├── deploy-scheduler.sh     # Cloud Scheduler専用デプロイ（推奨）
-│   ├── scheduler.yaml          # スケジューラー設定定義
-│   └── README.md               # Cloud Scheduler使用方法
+│   ├── scheduler-functions.sh   # 共通関数ライブラリ
+│   ├── deploy-scheduler.sh      # Cloud Scheduler専用デプロイ
+│   ├── scheduler.yaml           # スケジューラー設定定義
+│   └── README.md                # Cloud Scheduler使用方法
+│
+├── cloud-tasks/                 # Cloud Tasks設定
+│   ├── tasks-functions.sh      # 共通関数ライブラリ
+│   ├── deploy-cloud-tasks.sh   # Cloud Tasks専用デプロイ
+│   ├── tasks-config.yaml       # キュー設定定義
+│   └── README.md               # Cloud Tasks使用方法
 │
 ├── cloudbuild.yaml             # Cloud Build設定
 ├── test_db_connection.py       # データベース接続テスト
@@ -68,12 +79,12 @@ anpi-call-scheduler/
 
 | ファイル名 | 用途 | 説明 |
 |-----------|------|------|
-| `main.py` | アプリケーション | バッチ処理のメインロジック |
-| `job.yaml` | Cloud Run Job設定 | リソース制限、環境変数、接続設定 |
+| `cloud-run-jobs/main.py` | アプリケーション | バッチ処理のメインロジック |
+| `cloud-run-jobs/deploy-job.sh` | Cloud Run Jobs | ジョブのデプロイ・管理専用スクリプト |
 | `deploy-complete.sh` | 完全デプロイ | 全工程を自動化する統合スクリプト |
 | `cloud-scheduler/deploy-scheduler.sh` | Scheduler設定 | Cloud Scheduler の作成・管理専用 |
-| `Dockerfile` | コンテナ | Dockerイメージビルド設定 |
-| `requirements.txt` | 依存関係 | Python パッケージ定義 |
+| `cloud-run-jobs/Dockerfile` | コンテナ | Cloud Run Jobs用Dockerイメージ |
+| `cloud-run-jobs/requirements.txt` | 依存関係 | Python パッケージ定義 |
 
 ## 実行方法
 
@@ -82,36 +93,50 @@ anpi-call-scheduler/
 完全自動デプロイで全工程を一括実行：
 
 ```bash
-# 全設定を自動化
+# 完全自動デプロイ（推奨）
 ./deploy-complete.sh
+
+# 本番環境での自動デプロイ
+./deploy-complete.sh --production
+
+# インフラストラクチャのみセットアップ
+./deploy-complete.sh --infrastructure-only
+
+# アプリケーションのみデプロイ
+./deploy-complete.sh --deploy-only
+
+# テストをスキップしてデプロイ
+./deploy-complete.sh --skip-test
 ```
 
-このスクリプトは以下をすべて自動実行します：
+統合デプロイスクリプトは以下をすべて自動実行します：
 1. 必要なAPIの有効化
 2. Cloud Tasksキューの作成
-3. Docker イメージのビルド・プッシュ
-4. Cloud Run Job のデプロイ
-5. サービスアカウント権限の設定
-6. Cloud Scheduler の作成・設定
-7. 動作確認テスト
+3. Cloud Run Jobs のビルド・デプロイ
+4. サービスアカウント権限の設定
+5. Cloud Scheduler の作成・設定
+6. 動作確認テスト
 
 ### 個別実行
 
-#### 1. インフラストラクチャセットアップ（初回のみ）
+#### 1. Cloud Run Jobs のみデプロイ
 
 ```bash
-# 必要なAPI、IAM権限、Cloud Tasksキューを作成
-./setup-infrastructure.sh
+# Cloud Run Jobs 単体デプロイ
+./cloud-run-jobs/deploy-job.sh deploy
+
+# または Cloud Build を使用
+./cloud-run-jobs/deploy-job.sh build
+
+# ジョブの手動実行
+./cloud-run-jobs/deploy-job.sh execute
+
+# ジョブの管理（ログ確認、削除など）
+./cloud-run-jobs/deploy-job.sh logs
+./cloud-run-jobs/deploy-job.sh status
 ```
 
-#### 2. アプリケーションデプロイ
-
-```bash
-# Cloud Run JobとCloud Schedulerをデプロイ
-./deploy-application.sh
-```
-
-#### 3. Cloud Scheduler のみ設定
+#### 2. Cloud Scheduler のみ設定
 
 ```bash
 # Cloud Scheduler のみ作成・設定（推奨）

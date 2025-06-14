@@ -50,26 +50,21 @@ if check_tasks_queue_status "$QUEUE_NAME" "$LOCATION" >/dev/null 2>&1; then
     echo "✓ Cloud Tasksキューが存在します"
 else
     echo "❌ Cloud Tasksキューが見つかりません"
-    echo "先に ./setup-infrastructure.sh を実行してください"
+    echo "先に ./deploy-complete.sh を実行してください"
     exit 1
 fi
 
-# job.yamlの環境変数置換
+# Cloud Run Jobsデプロイメント
 echo ""
-echo "=== job.yamlの環境変数置換 ==="
-export PROJECT_ID JOB_NAME TASK_TIMEOUT CPU MEMORY ENVIRONMENT LOG_LEVEL CLOUD_TASKS_LOCATION
-envsubst < job.yaml > job-temp.yaml
-mv job-temp.yaml job.yaml
-echo "✓ job.yaml置換完了"
+echo "=== Cloud Run Jobsデプロイメント開始 ==="
 
-# Cloud Buildデプロイメント
-echo ""
-echo "=== Cloud Buildデプロイメント開始 ==="
-gcloud builds submit --config cloudbuild.yaml \
-    --substitutions=_JOB_NAME="$JOB_NAME",_REGION="$REGION",_CPU="$CPU",_MEMORY="$MEMORY",_TASK_TIMEOUT="$TASK_TIMEOUT",_ENVIRONMENT="$ENVIRONMENT",_LOG_LEVEL="$LOG_LEVEL" \
-    .
-
-echo "✓ Cloud Buildデプロイメント完了"
+# Cloud Run Jobs専用デプロイスクリプトを実行
+if ./cloud-run-jobs/deploy-job.sh deploy; then
+    echo "✓ Cloud Run Jobsデプロイメント完了"
+else
+    echo "❌ Cloud Run Jobsデプロイメントに失敗しました"
+    exit 1
+fi
 
 # Cloud Schedulerのセットアップ
 echo ""

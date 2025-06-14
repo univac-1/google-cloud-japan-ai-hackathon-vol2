@@ -91,216 +91,227 @@ flowchart TD
     class ERROR,FAIL error
 ```
 
-## デプロイメント実行フロー
+## 安否確認スケジューラー詳細処理フロー
 
 ```mermaid
-flowchart LR
-    subgraph "開発環境"
-        DEV[開発者]
-        ENV_FILE[.env設定ファイル]
-        DEPLOY[deploy.sh実行]
+flowchart TD
+    START([Cloud Run Job開始])
+    INIT[環境設定・ログ初期化]
+    
+    subgraph "データベース処理"
+        DB_CONN[Cloud SQL接続<br/>Unix Socket/TCP]
+        DB_QUERY[usersテーブル照会<br/>call_time, call_weekday]
+        DB_FETCH[ユーザー情報取得<br/>phone_number, user_id]
     end
     
-    subgraph "Cloud Build処理"
-        CONFIG[cloudbuild.yaml読み込み]
-        BUILD[Dockerビルド<br/>Dockerfile]
-        PUSH[イメージプッシュ<br/>Container Registry]
-        JOBS[Cloud Run Jobs<br/>デプロイ]
+    subgraph "スケジュール計算"
+        CALC_START[各ユーザー処理開始]
+        WEEKDAY_MAP[曜日マッピング<br/>mon:0, tue:1, ...sun:6]
+        NEXT_DATETIME[次回実行日時計算<br/>現在時刻+曜日オフセット]
+        TASK_NAME[タスク名生成<br/>anpi-call-task-{ID}-{DATE}]
     end
     
-    subgraph "スケジューラー設定"
-        SCHED[Cloud Scheduler<br/>作成・更新]
-        CRON[Cron設定<br/>定時実行]
+    subgraph "Cloud Tasks登録"
+        TASK_CHECK[既存タスク重複チェック]
+        CREATE_TASK[新規タスク作成]
+        TASK_CONFIG[タスク設定<br/>HTTP POST, Target URL]
+        SCHEDULE_TIME[実行時刻設定<br/>Unix Timestamp]
     end
     
-    DEV --> ENV_FILE
-    ENV_FILE --> DEPLOY
-    DEPLOY --> CONFIG
-    CONFIG --> BUILD
-    BUILD --> PUSH
-    PUSH --> JOBS
-    JOBS --> SCHED
-    SCHED --> CRON
+    subgraph "外部システム連携"
+        TARGET_URL[安否確認システム<br/>Twilioサービス]
+        WEBHOOK[Webhook呼び出し<br/>ユーザー情報付き]
+    end
     
-    classDef dev fill:#ff9800,stroke:#333,stroke-width:2px,color:#fff
-    classDef build fill:#4285f4,stroke:#333,stroke-width:2px,color:#fff
-    classDef schedule fill:#34a853,stroke:#333,stroke-width:2px,color:#fff
+    RESULT[処理結果ログ出力<br/>新規作成/スキップ件数]
+    END([処理完了])
+    ERROR[エラーハンドリング]
     
-    class DEV,ENV_FILE,DEPLOY dev
-    class CONFIG,BUILD,PUSH,JOBS build
-    class SCHED,CRON schedule
+    START --> INIT
+    INIT --> DB_CONN
+    DB_CONN --> DB_QUERY
+    DB_QUERY --> DB_FETCH
+    DB_FETCH --> CALC_START
+    
+    CALC_START --> WEEKDAY_MAP
+    WEEKDAY_MAP --> NEXT_DATETIME
+    NEXT_DATETIME --> TASK_NAME
+    TASK_NAME --> TASK_CHECK
+    
+    TASK_CHECK -->|新規| CREATE_TASK
+    TASK_CHECK -->|重複| RESULT
+    CREATE_TASK --> TASK_CONFIG
+    TASK_CONFIG --> SCHEDULE_TIME
+    SCHEDULE_TIME --> TARGET_URL
+    TARGET_URL --> WEBHOOK
+    WEBHOOK --> RESULT
+    
+    RESULT --> END
+    
+    %% エラーハンドリング
+    DB_CONN -.->|接続エラー| ERROR
+    DB_QUERY -.->|SQLエラー| ERROR  
+    CREATE_TASK -.->|APIエラー| ERROR
+    ERROR --> END
+    
+    %% スタイリング
+    classDef database fill:#4CAF50,stroke:#333,stroke-width:2px,color:#fff
+    classDef calculation fill:#2196F3,stroke:#333,stroke-width:2px,color:#fff
+    classDef tasks fill:#FF9800,stroke:#333,stroke-width:2px,color:#fff
+    classDef external fill:#9C27B0,stroke:#333,stroke-width:2px,color:#fff
+    classDef process fill:#607D8B,stroke:#333,stroke-width:2px,color:#fff
+    classDef endpoint fill:#F44336,stroke:#333,stroke-width:2px,color:#fff
+    
+    class DB_CONN,DB_QUERY,DB_FETCH database
+    class CALC_START,WEEKDAY_MAP,NEXT_DATETIME,TASK_NAME calculation
+    class TASK_CHECK,CREATE_TASK,TASK_CONFIG,SCHEDULE_TIME tasks
+    class TARGET_URL,WEBHOOK external
+    class INIT,RESULT process
+    class START,END,ERROR endpoint
 ```
 
-## ファイル構成と役割
+## データフロー構成図
 
 ```mermaid
 graph TB
-    subgraph "メインアプリケーション"
-        MAIN[main.py<br/>バッチ処理メインロジック]
-        REQ[requirements.txt<br/>Python依存関係]
+    subgraph "定時実行基盤"
+        CS[Cloud Scheduler<br/>毎時0分実行<br/>Cron: 0 * * * *]
+        CRJ[Cloud Run Job<br/>anpi-call-scheduler]
     end
     
-    subgraph "Docker設定"
-        DOCKER[Dockerfile<br/>コンテナイメージ定義]
-    end
-    
-    subgraph "デプロイメント設定"
-        DEPLOY[deploy.sh<br/>デプロイスクリプト]
-        BUILD[cloudbuild.yaml<br/>Cloud Build設定]
-        ENV[.env<br/>環境変数設定]
-    end
-    
-    subgraph "GCPリソース定義"
-        JOB[job.yaml<br/>Cloud Run Job設定]
-        SCHED[scheduler.yaml<br/>Cloud Scheduler設定]
-    end
-    
-    subgraph "ドキュメント"
-        README[README.md<br/>プロジェクト概要]
-        DOCS[docs/<br/>詳細ドキュメント]
-    end
-    
-    %% 関係性
-    DEPLOY --> ENV
-    DEPLOY --> BUILD
-    BUILD --> DOCKER
-    DOCKER --> MAIN
-    DOCKER --> REQ
-    BUILD -.->|参考| JOB
-    DEPLOY -.->|参考| SCHED
-    
-    classDef app fill:#e8f5e8,stroke:#4caf50,stroke-width:2px
-    classDef docker fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
-    classDef deploy fill:#fff3e0,stroke:#ff9800,stroke-width:2px
-    classDef config fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px
-    classDef docs fill:#fafafa,stroke:#757575,stroke-width:2px
-    
-    class MAIN,REQ app
-    class DOCKER docker
-    class DEPLOY,BUILD,ENV deploy
-    class JOB,SCHED config
-    class README,DOCS docs
-```
-
-## 実行環境構成
-
-```mermaid
-graph TB
-    subgraph "Cloud Run Jobs実行環境"
-        direction TB
-        CRJ[Cloud Run Jobs<br/>anpi-call-scheduler]
-        
-        subgraph "実行時設定"
-            CPU[CPU: 1 vCPU]
-            MEM[Memory: 512Mi]
-            TIMEOUT[Timeout: 300s]
-            RETRY[Max Retry: 1]
-        end
-        
-        subgraph "環境変数"
-            PROJECT[GOOGLE_CLOUD_PROJECT]
-            ENV_VAR[ENVIRONMENT]
-            LOG[LOG_LEVEL]
-            JOB_NAME[CLOUD_RUN_JOB]
+    subgraph "データベース層"
+        SQL[Cloud SQL<br/>MySQL Instance]
+        subgraph "テーブル構成"
+            USERS[usersテーブル<br/>• user_id<br/>• phone_number<br/>• call_time<br/>• call_weekday]
         end
     end
     
-    subgraph "Cloud Scheduler設定"
-        SCHEDULE[スケジュール実行<br/>Cron: 0 * * * *]
-        TIMEZONE[タイムゾーン<br/>Asia/Tokyo]
-        HTTP[HTTP Trigger<br/>Cloud Run Jobs API]
+    subgraph "タスクキュー"
+        CT[Cloud Tasks<br/>anpi-call-queue]
+        subgraph "登録タスク"
+            TASK1[anpi-call-task-<br/>user1-20250614-0900]
+            TASK2[anpi-call-task-<br/>user2-20250615-1030]
+            TASK3[anpi-call-task-<br/>user3-20250616-1400]
+        end
+    end
+    
+    subgraph "外部システム"
+        TWILIO[Twilio安否確認サービス<br/>anpi-call-twilio]
+        PHONE[📞 電話発信<br/>音声ガイダンス]
     end
     
     subgraph "ログ・監視"
-        LOGGING[Cloud Logging<br/>実行ログ]
-        MONITOR[実行履歴<br/>成功/失敗]
+        CL[Cloud Logging<br/>実行ログ・エラーログ]
+        CM[Cloud Monitoring<br/>実行メトリクス]
     end
     
-    %% 実行フロー
-    SCHEDULE --> HTTP
-    HTTP --> CRJ
-    CRJ --> LOGGING
-    CRJ --> MONITOR
+    %% メインフロー
+    CS -->|定時トリガー| CRJ
+    CRJ -->|SELECT query| SQL
+    SQL -->|ユーザー情報| CRJ
+    CRJ -->|次週スケジュール計算| CT
+    CT -->|指定時刻にHTTP POST| TWILIO
+    TWILIO -->|電話発信| PHONE
     
-    %% 設定の関係
-    CPU -.-> CRJ
-    MEM -.-> CRJ
-    TIMEOUT -.-> CRJ
-    RETRY -.-> CRJ
-    PROJECT -.-> CRJ
-    ENV_VAR -.-> CRJ
-    LOG -.-> CRJ
-    JOB_NAME -.-> CRJ
+    %% テーブル詳細
+    SQL --> USERS
     
-    classDef job fill:#4285f4,stroke:#333,stroke-width:2px,color:#fff
-    classDef config fill:#34a853,stroke:#333,stroke-width:2px,color:#fff
-    classDef schedule fill:#ff9800,stroke:#333,stroke-width:2px,color:#fff
-    classDef logging fill:#9c27b0,stroke:#333,stroke-width:2px,color:#fff
+    %% タスク詳細
+    CT --> TASK1
+    CT --> TASK2  
+    CT --> TASK3
     
-    class CRJ job
-    class CPU,MEM,TIMEOUT,RETRY,PROJECT,ENV_VAR,LOG,JOB_NAME config
-    class SCHEDULE,TIMEZONE,HTTP schedule
-    class LOGGING,MONITOR logging
+    %% ログ出力
+    CRJ --> CL
+    CRJ --> CM
+    TWILIO --> CL
+    
+    %% スタイリング
+    classDef scheduler fill:#4285f4,stroke:#333,stroke-width:2px,color:#fff
+    classDef database fill:#34a853,stroke:#333,stroke-width:2px,color:#fff
+    classDef tasks fill:#ff9800,stroke:#333,stroke-width:2px,color:#fff
+    classDef external fill:#9c27b0,stroke:#333,stroke-width:2px,color:#fff
+    classDef monitoring fill:#607d8b,stroke:#333,stroke-width:2px,color:#fff
+    
+    class CS,CRJ scheduler
+    class SQL,USERS database
+    class CT,TASK1,TASK2,TASK3 tasks
+    class TWILIO,PHONE external
+    class CL,CM monitoring
 ```
 
-## 環境別構成
+## タスクスケジューリング処理詳細
 
 ```mermaid
-graph TB
-    subgraph "開発環境設定"
-        DEV_ENV[ENVIRONMENT=development]
-        DEV_LOG[LOG_LEVEL=debug]
-        DEV_JOB[anpi-call-scheduler-dev]
-        DEV_SCHED[anpi-call-scheduler-dev-hourly]
+flowchart LR
+    subgraph "ユーザー設定例"
+        USER1[ユーザーA<br/>曜日: mon<br/>時刻: 09:00]
+        USER2[ユーザーB<br/>曜日: wed<br/>時刻: 14:30]
+        USER3[ユーザーC<br/>曜日: fri<br/>時刻: 11:15]
     end
     
-    subgraph "本番環境設定"
-        PROD_ENV[ENVIRONMENT=production]
-        PROD_LOG[LOG_LEVEL=info]
-        PROD_JOB[anpi-call-scheduler-prod]
-        PROD_SCHED[anpi-call-scheduler-prod-hourly]
+    subgraph "スケジュール計算ロジック"
+        NOW[現在時刻<br/>2025-06-14 08:00<br/>土曜日]
+        
+        subgraph "ユーザーA計算"
+            CALC_A1[月曜日まで: 2日後]
+            CALC_A2[実行予定:<br/>2025-06-16 09:00]
+        end
+        
+        subgraph "ユーザーB計算"
+            CALC_B1[水曜日まで: 4日後]
+            CALC_B2[実行予定:<br/>2025-06-18 14:30]
+        end
+        
+        subgraph "ユーザーC計算"
+            CALC_C1[金曜日まで: 6日後]
+            CALC_C2[実行予定:<br/>2025-06-20 11:15]
+        end
     end
     
-    subgraph "共通リソース"
-        CR[Container Registry<br/>gcr.io/PROJECT_ID/anpi-call-scheduler]
-        CL[Cloud Logging]
-        CB[Cloud Build<br/>cloudbuild.yaml]
+    subgraph "Cloud Tasksタスク生成"
+        TASK_A[anpi-call-task-12345678-20250616-0900<br/>スケジュール: 2025-06-16 09:00]
+        TASK_B[anpi-call-task-87654321-20250618-1430<br/>スケジュール: 2025-06-18 14:30]
+        TASK_C[anpi-call-task-11223344-20250620-1115<br/>スケジュール: 2025-06-20 11:15]
     end
     
-    subgraph ".env設定による切り替え"
-        ENV_FILE[.env<br/>環境変数設定]
-        DEPLOY_SCRIPT[deploy.sh<br/>設定読み込み]
+    subgraph "実行時刻での処理"
+        EXEC_A[2025-06-16 09:00<br/>→ Twilio API呼び出し<br/>→ ユーザーAに電話]
+        EXEC_B[2025-06-18 14:30<br/>→ Twilio API呼び出し<br/>→ ユーザーBに電話]
+        EXEC_C[2025-06-20 11:15<br/>→ Twilio API呼び出し<br/>→ ユーザーCに電話] 
     end
     
-    %% 共通リソース使用
-    DEV_JOB --> CR
-    PROD_JOB --> CR
-    DEV_JOB --> CL
-    PROD_JOB --> CL
+    %% フロー接続
+    USER1 --> NOW
+    USER2 --> NOW
+    USER3 --> NOW
     
-    %% デプロイメント
-    ENV_FILE --> DEPLOY_SCRIPT
-    DEPLOY_SCRIPT --> CB
-    CB --> DEV_JOB
-    CB --> PROD_JOB
+    NOW --> CALC_A1
+    NOW --> CALC_B1
+    NOW --> CALC_C1
     
-    %% 環境固有設定
-    DEV_ENV -.-> DEV_JOB
-    DEV_LOG -.-> DEV_JOB
-    DEV_SCHED -.-> DEV_JOB
-    PROD_ENV -.-> PROD_JOB
-    PROD_LOG -.-> PROD_JOB
-    PROD_SCHED -.-> PROD_JOB
+    CALC_A1 --> CALC_A2
+    CALC_B1 --> CALC_B2
+    CALC_C1 --> CALC_C2
     
-    classDef dev fill:#e8f5e8,stroke:#4caf50,stroke-width:2px
-    classDef prod fill:#ffebee,stroke:#f44336,stroke-width:2px
-    classDef shared fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
-    classDef config fill:#fff3e0,stroke:#ff9800,stroke-width:2px
+    CALC_A2 --> TASK_A
+    CALC_B2 --> TASK_B
+    CALC_C2 --> TASK_C
     
-    class DEV_ENV,DEV_LOG,DEV_JOB,DEV_SCHED dev
-    class PROD_ENV,PROD_LOG,PROD_JOB,PROD_SCHED prod
-    class CR,CL,CB shared
-    class ENV_FILE,DEPLOY_SCRIPT config
+    TASK_A -.->|指定時刻| EXEC_A
+    TASK_B -.->|指定時刻| EXEC_B
+    TASK_C -.->|指定時刻| EXEC_C
+    
+    %% スタイリング
+    classDef user fill:#e8f5e8,stroke:#4caf50,stroke-width:2px
+    classDef calc fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
+    classDef task fill:#fff3e0,stroke:#ff9800,stroke-width:2px
+    classDef exec fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px
+    
+    class USER1,USER2,USER3 user
+    class NOW,CALC_A1,CALC_A2,CALC_B1,CALC_B2,CALC_C1,CALC_C2 calc
+    class TASK_A,TASK_B,TASK_C task
+    class EXEC_A,EXEC_B,EXEC_C exec
 ```
 
 ## コマンド実行例

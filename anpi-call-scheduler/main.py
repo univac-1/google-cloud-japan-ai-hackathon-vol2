@@ -39,12 +39,38 @@ def setup_logging():
 
 logger = setup_logging()
 
+def check_task_exists(client, project_id, location, queue_name, task_name):
+    """指定されたタスクが既に存在するかチェック"""
+    try:
+        parent = client.queue_path(project_id, location, queue_name)
+        
+        # キューから全てのタスクを取得
+        request = tasks_v2.ListTasksRequest(parent=parent)
+        response = client.list_tasks(request)
+        
+        # タスク名をチェック
+        full_task_name = f"{parent}/tasks/{task_name}"
+        for task in response:
+            if task.name == full_task_name:
+                logger.debug(f"タスクが既に存在します: {task_name}")
+                return True
+        
+        return False  # タスクが存在しない
+    except Exception as e:
+        logger.debug(f"タスク存在チェックでエラー: {str(e)}")
+        return False  # エラーが発生した場合は存在しないものとして処理
+
 def create_cloud_task(project_id, location, queue_name, schedule_time, target_url, task_name=None, schedule=None):
     """Cloud Tasksにタスクを作成する"""
     logger.info(f"Cloud Tasksにタスクを作成中: {task_name or 'unnamed-task'}")
     
     # Cloud Tasksクライアントを初期化
     client = tasks_v2.CloudTasksClient()
+    
+    # タスクが既に存在するかチェック
+    if task_name and check_task_exists(client, project_id, location, queue_name, task_name):
+        logger.warning(f"タスクが既に存在するためスキップします: {task_name}")
+        return None
     
     # キューのパスを作成
     parent = client.queue_path(project_id, location, queue_name)
@@ -82,18 +108,27 @@ def create_cloud_task(project_id, location, queue_name, schedule_time, target_ur
         logger.info(f"タスクが正常に作成されました: {response.name}")
         return response
     except Exception as e:
-        logger.error(f"タスク作成でエラーが発生しました: {str(e)}")
-        raise
+        error_msg = str(e)
+        
+        # 409エラー（重複）の場合の処理
+        if "409" in error_msg and "task with this name existed too recently" in error_msg:
+            logger.warning(f"タスク名が重複しています。スキップします: {task_name}")
+            return None
+        else:
+            logger.error(f"タスク作成でエラーが発生しました: {error_msg}")
+            raise
 
 def get_db_connection():
     """データベース接続を取得する"""
     try:
-        # Cloud SQL接続の判定
-        use_cloud_sql = os.environ.get('USE_CLOUD_SQL', 'false').lower() == 'true'
-        is_cloud_run_service = os.environ.get('K_SERVICE') is not None
-        is_cloud_run_job = os.environ.get('IS_CLOUD_RUN_JOB', 'false').lower() == 'true'
+        # Cloud Run環境の判定 - Cloud Run JobsやCloud Run Servicesで動作中か判定
+        is_cloud_run = (
+            os.environ.get('K_SERVICE') is not None or  # Cloud Run Service
+            os.environ.get('CLOUD_RUN_JOB') is not None or  # Cloud Run Job
+            os.environ.get('K_CONFIGURATION') is not None  # Cloud Run (一般)
+        )
         
-        if use_cloud_sql or is_cloud_run_service or is_cloud_run_job:
+        if is_cloud_run:
             # Cloud SQL Proxyソケット接続（Cloud Run環境）
             unix_socket = f"/cloudsql/{os.environ.get('GOOGLE_CLOUD_PROJECT', 'univac-aiagent')}:asia-northeast1:cloudsql-01"
             logger.info(f"Cloud SQL接続を使用: {unix_socket}")
@@ -148,6 +183,11 @@ def get_users_from_db():
         users = cursor.fetchall()
         
         logger.info(f"取得したユーザー数: {len(users)}")
+        
+        # デバッグ情報：取得したユーザーの詳細をログ出力
+        for user in users:
+            logger.debug(f"ユーザー情報: ID={user['user_id']}, 名前={user['last_name']} {user['first_name']}, 曜日={user['call_weekday']}, 時刻={user['call_time']}")
+        
         return users
         
     except Error as e:
@@ -258,12 +298,20 @@ def process_safety_check_schedules():
     schedules = get_user_schedules()
     
     created_tasks = []
+    skipped_tasks = 0
+    
     for schedule in schedules:
         try:
             logger.info(f"予定を処理中: {schedule['name']} (実行予定: {schedule['schedule_time']})")
             
+            # タスク名を要件に従って生成: anpi-call-task-<ID>-<タスク実行予定日>
+            schedule_date = schedule['schedule_time'].strftime('%Y%m%d-%H%M')
+            user_id_short = schedule['id'][:8]  # ユーザーIDの最初の8文字
+            task_name = f"anpi-call-task-{user_id_short}-{schedule_date}"
+            
+            logger.debug(f"生成されたタスク名: {task_name}")
+            
             # Cloud Tasksにタスクを作成
-            task_name = f"{schedule['name']}-{int(schedule['schedule_time'].timestamp())}"
             response = create_cloud_task(
                 project_id=project_id,
                 location=location,
@@ -274,19 +322,22 @@ def process_safety_check_schedules():
                 schedule=schedule
             )
             
-            created_tasks.append({
-                'schedule_id': schedule['id'],
-                'task_name': response.name,
-                'schedule_time': schedule['schedule_time']
-            })
-            
-            logger.info(f"タスク登録完了: {schedule['name']}")
+            if response:
+                created_tasks.append({
+                    'schedule_id': schedule['id'],
+                    'task_name': response.name,
+                    'schedule_time': schedule['schedule_time']
+                })
+                logger.info(f"タスク登録完了: {task_name}")
+            else:
+                skipped_tasks += 1
+                logger.info(f"タスクをスキップしました（既存または重複）: {task_name}")
             
         except Exception as e:
             logger.error(f"スケジュール処理エラー (ID: {schedule['id']}): {str(e)}")
             continue
     
-    logger.info(f"Cloud Tasksタスク登録完了: {len(created_tasks)}件")
+    logger.info(f"Cloud Tasksタスク処理完了: 新規作成={len(created_tasks)}件, スキップ={skipped_tasks}件")
     return created_tasks
 
 def main():

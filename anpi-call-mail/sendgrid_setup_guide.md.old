@@ -1,0 +1,69 @@
+# SendGrid APIキー取得とセットアップガイド
+
+## 1. SendGridアカウント作成とAPIキー取得
+
+### ステップ1: SendGridアカウント作成
+1. https://sendgrid.com にアクセス
+2. **Start for Free** をクリック
+3. アカウント情報を入力して登録
+4. メール認証を完了
+
+### ステップ2: APIキー作成
+1. SendGridダッシュボードにログイン
+2. 左メニューから **Settings** → **API Keys** をクリック
+3. **Create API Key** をクリック
+4. **API Key Name** を入力（例: anpi-system-key）
+5. **Full Access** または **Mail Send** を選択
+6. **Create & View** をクリック
+7. 表示されたAPIキーをコピー（一度しか表示されません）
+
+### ステップ3: 送信者認証設定
+1. **Settings** → **Sender Authentication** をクリック
+2. **Single Sender Verification** を選択
+3. 送信者メールアドレス（thistle0420@gmail.com）を入力
+4. その他の情報を入力して認証を完了
+
+## 2. 現在のシステムでの設定方法
+
+### 方法A: 環境変数で直接設定
+```bash
+export SENDGRID_API_KEY="SG.あなたのAPIキー"
+export FROM_EMAIL="thistle0420@gmail.com"
+./setup_and_deploy.sh
+```
+
+### 方法B: .envファイルで設定
+```bash
+# .envファイルを編集
+echo 'export SENDGRID_API_KEY="SG.あなたのAPIキー"' > .env  
+echo 'export FROM_EMAIL="thistle0420@gmail.com"' >> .env
+source .env
+./setup_and_deploy.sh
+```
+
+### 方法C: 対話式セットアップ
+```bash
+./setup_env.sh  # 対話式でAPIキーを入力
+```
+
+## 3. テスト実行
+```bash
+# 自分宛にテストメールを送信
+./test.sh "thistle0420@gmail.com" "山田" "花子" "090-1234-5678"
+```
+
+## 4. トラブルシューティング
+
+### エラー: 401 Unauthorized
+- APIキーが正しく設定されているか確認
+- APIキーに十分な権限があるか確認
+
+### エラー: 403 Forbidden  
+- 送信者メールアドレスがSendGridで認証されているか確認
+- Single Sender Verificationを完了しているか確認
+
+### その他のエラー
+```bash
+# Cloud Functionのログを確認
+gcloud functions logs read send-mail --region=asia-northeast1
+```

@@ -1,0 +1,16 @@
+GOOGLE_SERVICE_ACCOUNT_KEY: |
+  {
+    "type": "service_account",
+    "project_id": "univac-aiagent",
+    "private_key_id": "c2cc4060d6b8821bd81e316d6960310637a8bc88",
+    "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCmUDpKHq1ZsQIn\nagxn6Jms09epKulQ7VnDlLndMvIIPA5PZYw2OUo2+0H+TbzPI7EBjN9G9vw8cI6f\nugV4rnqYl1068Cp9NV/Td8/nlkmfe5+xkRQtelQKFAUVGnVFCj7ZZvaH0McpCItv\n4ZSA+rJUAT7974OL2AD7Q+6LMAxqxY+modJ379K9dIiRr93b7FR7efzoVeppciXt\n/9oJ16nrrM0UC5Ep4uouWzzv0plTnYSuF/5UtFHqthnaG7JvOxK9bTsP/XBKwaMr\nMczxHc7OyaiLf5QgJW0Fo/sGYCa5h1eZ2/FjO2j5lJByH9gzstEj1DEAv94jM/xt\nFHmGl0NDAgMBAAECggEACHWvtAWXHsOOgMUUWenZYKEAaQnBI7D3EcR9/Hsr3uKU\n74qgv7LnjDyHEP/YEfrWg2Xzv/1nO4ckLopSNCY/Avevo9muWWLiJlguOmoXOruZ\neaPW9BQk7PzBmTRf1JdCNtNVyKHLjsPUx+gSMK2W+86Wa0ykkyzZG+7ZDvLgdQoO\nQfH7xiZteEWw6yERIXvzDOGH/aMLkIZgqCFMaU3OOW0eiq0NSEIdwdTRFcvnRIyR\nNsr0HWz6sI5UahuK1cjhEWgyyYKfXMM9aEtPNLGbDJ1isnxftTUMm9FAI5Z77rYX\nPiSRz/a8RF2khUpTPtthk2qNTe5kFEZHhJEAmgcf9QKBgQDR4WZXfy03pj1x9B+0\nwfwxy+H11sh04Hjfzwa/SUzTMhQwMu6rSxn7PsxxgkFl0414yahzUtW0xdYFj2oS\nfmTIT+LdoHeTYpXtYjLs5sC2FLa3+BVuBEJB+tXZPIkCYkvpp01al7ELpj431rJN\nqTrx3ResgQogEoHnf9Zl+IsqvwKBgQDK3AI8N4GjREN8AV/lqxjtZDF/JeZuLK9g\nQGYWqDmKwzhb16SczHTCAct8LUU/U2plLyW0WlU1W+rypNglOraPiYdC4ha9U/Wz\n3fB42vDmvi3NVUvEMfROp6IAFqVYEUwHahM19K5eBqYUU2G5mfQp28QRrlEyjpNS\nDbDEfCmcfQKBgElcvGVBMxEMrtWyO5L3a6wMVEOWfCM+g4HX38flW1FHY/8lDoAZ\nlE9aOCRFH470T7M06gjFn6W8sX7oDm/AdoH+SpKlkKaYA0gi1yIv1pTO0L+lm/gE\nzRQ7FZ0Fp+6JZXea31MXSu+DgKQMC+9RhCUe3zORN3TWg0nkSZEDO8IJAoGBAItF\nlPtGmGhA+5vtTateVlTVDu5eVN+bKiSI0g4IHMlZ0h2r5UYJULfJh6yPYBVj7Y3e\nWqKByjJCEwHXjtWwg5n0L7sJgdcmB3AflXNDzVR9iPCJ+OSP70z45c3tvkLCTVJh\nzyKiA/xl0CvwOw2z1t/OE8SXywNMw3P4Fj4viFn5AoGAcxYirwf9Gp+p5vaHiwjy\nrMcHm9j8Mmymob2/e3UcLKS2FNZLXDDubxBrgYPSEfAX6cG6PFD6IPUB/R97XJMT\nn1mny9HvCnMi/G6/WRY/xooYugnm+QbEgj8GZbtKWMu9D26WAdoBRZavljNtNph/\nBCgLIQZMznk/Vw/Q4RLbTOw=\n-----END PRIVATE KEY-----\n",
+    "client_email": "gmail-sender-sa@univac-aiagent.iam.gserviceaccount.com",
+    "client_id": "116384108600160159647",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/gmail-sender-sa%40univac-aiagent.iam.gserviceaccount.com",
+    "universe_domain": "googleapis.com"
+  }
+FROM_EMAIL: thistle0420@gmail.com
+DEBUG_MODE: 'true'

@@ -1,0 +1,36 @@
+steps:
+  # Docker イメージをビルド
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'build',
+      '-t', 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/speech-assistant/speech-assistant-outbound:latest',
+      '.'
+    ]
+
+  # Docker イメージをArtifact Registryにプッシュ
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/speech-assistant/speech-assistant-outbound:latest']
+
+  # Cloud Runにデプロイ
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    env:
+      - 'OPENAI_API_KEY=$_OPENAI_API_KEY'
+      - 'TWILIO_ACCOUNT_SID=$_TWILIO_ACCOUNT_SID'
+      - 'TWILIO_AUTH_TOKEN=$_TWILIO_AUTH_TOKEN'
+      - 'PHONE_NUMBER_FROM=$_PHONE_NUMBER_FROM'
+    args: [
+      'run', 'deploy', 'speech-assistant-outbound',
+      '--image', 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/speech-assistant/speech-assistant-outbound:latest',
+      '--region', 'asia-northeast1',
+      '--platform', 'managed',
+      '--allow-unauthenticated',
+      '--port', '8080',
+      '--memory', '1Gi',
+      '--cpu', '1',
+      '--max-instances', '10',
+      '--set-env-vars', 'OPENAI_API_KEY=$_OPENAI_API_KEY,TWILIO_ACCOUNT_SID=$_TWILIO_ACCOUNT_SID,TWILIO_AUTH_TOKEN=$_TWILIO_AUTH_TOKEN,PHONE_NUMBER_FROM=$_PHONE_NUMBER_FROM'
+    ]
+
+options:
+  logging: CLOUD_LOGGING_ONLY

@@ -8,6 +8,7 @@ import websockets
 from dotenv import load_dotenv
 import uvicorn
 import logging
+from pydantic import BaseModel
 
 # ログ設定 - デバッグレベルに変更
 logging.basicConfig(
@@ -24,7 +25,7 @@ PHONE_NUMBER_FROM = os.getenv('PHONE_NUMBER_FROM')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 raw_domain = os.getenv('DOMAIN', '')
 DOMAIN = re.sub(r'(^\w+:|^)\/\/|\/+$', '', raw_domain)
-PORT = int(os.getenv('PORT', 6060))
+PORT = int(os.getenv('PORT', 8080))
 
 client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 app = FastAPI()
@@ -49,9 +50,54 @@ SHOW_TIMING_MATH = False
 if not OPENAI_API_KEY:
     raise ValueError('Missing the OpenAI API key. Please set it in the .env file.')
 
+class OutboundCallRequest(BaseModel):
+    to_number: str
+    message: str = None
+
 @app.get('/', response_class=JSONResponse)
 async def index_page():
-    return {"message": "Twilio Media Stream Server is running!"}
+    return {"message": "Twilio Outbound Call Server is running!"}
+
+@app.post("/outbound-call")
+async def outbound_call_endpoint(request: OutboundCallRequest, http_request: Request):
+    """API endpoint to initiate outbound calls"""
+    try:
+        # Get the current request's host for webhook URL
+        # Use the request host to build the WebSocket URL
+        host = str(http_request.url.hostname)
+        if http_request.url.port:
+            host = f"{host}:{http_request.url.port}"
+        
+        logger.info(f"Making outbound call to {request.to_number}")
+        logger.info(f"Using host: {host}")
+        
+        call = client.calls.create(
+            twiml=f'''<Response>
+                <Say voice="alice" language="ja-JP">こんにちは、AIアシスタントです。お話をお聞きします。</Say>
+                <Pause length="1"/>
+                <Connect>
+                    <Stream url="wss://{host}/media-stream" />
+                </Connect>
+            </Response>''',
+            to=request.to_number,
+            from_=PHONE_NUMBER_FROM
+        )
+        
+        logger.info(f"Call initiated with SID: {call.sid}")
+        
+        return {
+            "success": True,
+            "call_sid": call.sid,
+            "to_number": request.to_number,
+            "message": "Call initiated successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error making outbound call: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 @app.websocket("/media-stream")
 async def handle_media_stream(websocket: WebSocket):

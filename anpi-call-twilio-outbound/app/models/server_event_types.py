@@ -8,6 +8,7 @@ class ServerEventType(str, Enum):
     AUDIO = "response.audio.delta"
     AUDIO_DONE = "response.audio.done"
     CONTROL_AUDIO_DONE = "control.audio.done"
+    INPUT_AUDIO_BUFFER_SPEECH_STARTED = "input_audio_buffer.speech_started"
     
     # テキスト関連
     TRANSCRIPT = "response.transcript"

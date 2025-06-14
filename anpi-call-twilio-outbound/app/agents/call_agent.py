@@ -10,7 +10,6 @@ from app.agents.event_agent import EventAgent
 from app.models.openai_event_types import OpenAIEventType
 from app.models.server_event_types import ServerEventType
 from app.repositories.cloudsql_user_repository import CloudSQLUserRepository
-from app.repositories.user_repository import UserRepository
 from app.models.schemas import User
 
 try:
@@ -48,9 +47,11 @@ class CallAgent(BaseAgent):
         if self.user_id and not self.user:
             self.user = await self.user_repository.get_user_by_id(self.user_id)
             if self.user:
-                self.logger.info(f"User data loaded for user_id: {self.user_id}")
+                self.logger.info(
+                    f"User data loaded for user_id: {self.user_id}")
             else:
-                self.logger.warning(f"User not found for user_id: {self.user_id}")
+                self.logger.warning(
+                    f"User not found for user_id: {self.user_id}")
 
         if not self.openai_ws or self.openai_ws.closed:
             self.openai_ws = await websockets.connect(
@@ -75,7 +76,7 @@ class CallAgent(BaseAgent):
                 age = today.year - self.user.birth_date.year
                 if (today.month, today.day) < (self.user.birth_date.month, self.user.birth_date.day):
                     age -= 1
-            
+
             user_context = f"""
                 【ユーザー情報】
                 - お名前: {self.user.last_name} {self.user.first_name}様
@@ -85,7 +86,7 @@ class CallAgent(BaseAgent):
                 
                 この情報を踏まえて、より親身で適切な対応を心がけてください。
                 """
-        
+
         session_config = {
             "type": "session.update",
             "session": {
@@ -237,14 +238,14 @@ class CallAgent(BaseAgent):
                     }
                 }
                 await self.openai_ws.send(json.dumps(function_output))
-                
+
                 await self.openai_ws.send(json.dumps({
                     "type": "response.create",
                     "response": {
                         "modalities": ["audio", "text"]
                     }
                 }))
-                
+
                 return {"success": False, "error": error_message}
 
             # EventAgentに渡すためのデータを準備
@@ -253,7 +254,7 @@ class CallAgent(BaseAgent):
                 "conversation": arguments.get("conversation_context", ""),
                 "count": arguments.get("count", 3)
             }
-            
+
             event_result = await self.event_agent.process(event_input)
 
             if event_result["success"]:
@@ -270,7 +271,8 @@ class CallAgent(BaseAgent):
                         events_text += f"   おすすめ理由: {reason}\n"
                         events_text += f"   お問い合わせ: {event['contact_phone']}\n\n"
                 else:
-                    events_text = event_result.get("message", "申し訳ございませんが、現在おすすめできるイベントが見つかりませんでした。")
+                    events_text = event_result.get(
+                        "message", "申し訳ございませんが、現在おすすめできるイベントが見つかりませんでした。")
 
                 # function call結果を送信
                 function_output = {
@@ -282,7 +284,7 @@ class CallAgent(BaseAgent):
                     }
                 }
                 await self.openai_ws.send(json.dumps(function_output))
-                
+
                 # 新しいレスポンスを生成（音声を含む）
                 await self.openai_ws.send(json.dumps({
                     "type": "response.create",
@@ -330,6 +332,10 @@ class CallAgent(BaseAgent):
 
         elif event_type == OpenAIEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED:
             self.logger.info("openai.speech_started", extra=extra_info)
+
+            return {
+                "type": ServerEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED
+            }
 
         elif event_type == OpenAIEventType.INPUT_AUDIO_BUFFER_SPEECH_STOPPED:
             self.logger.info("openai.speech_stopped", extra=extra_info)
@@ -425,7 +431,7 @@ class CallAgent(BaseAgent):
                     "function_name": function_name,
                     "arguments": arguments
                 }
-                
+
             elif function_name == "recommend_events":
                 # バックグラウンドで関数を実行
                 asyncio.create_task(

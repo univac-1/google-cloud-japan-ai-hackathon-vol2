@@ -149,7 +149,7 @@ curl -X POST http://localhost:8080/outbound-call \
 
 ```bash
 # 発信を行いつつサーバーを起動
-python main.py --call=+81901234567
+python main.py --call=+818079399927
 ```
 
 #### 3. ngrok を使ったローカル公開（完全ローカル環境）

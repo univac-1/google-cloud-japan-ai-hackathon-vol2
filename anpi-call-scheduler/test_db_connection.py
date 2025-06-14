@@ -13,12 +13,12 @@ def get_db_connection() -> Optional[mysql.connector.MySQLConnection]:
     データベース接続を取得する
     Cloud SQL Proxy（ソケット接続）またはTCP接続を試行する
     """
-    # 環境変数から接続情報を取得
-    db_host = os.getenv('DB_HOST', '127.0.0.1')
-    db_user = os.getenv('DB_USER', 'default')
-    db_password = os.getenv('DB_PASSWORD', 'TH8V+cqXJOPqRl3Ez4RAg+mQvnlkQmqh/r14epk2BT0=')
-    db_name = os.getenv('DB_NAME', 'default')
-    db_port = int(os.getenv('DB_PORT', '3306'))
+    # ハードコーディングされた接続情報（動作確認用）
+    db_host = '127.0.0.1'
+    db_user = 'default'
+    db_password = 'TH8V+cqXJOPqRl3Ez4RAg+mQvnlkQmqh/r14epk2BT0='
+    db_name = 'default'
+    db_port = 3306
     
     print(f"接続情報:")
     print(f"  Host: {db_host}")
@@ -55,12 +55,31 @@ def get_db_connection() -> Optional[mysql.connector.MySQLConnection]:
             port=db_port,
             user=db_user,
             password=db_password,
-            database=db_name
+            database=db_name,
+            auth_plugin='mysql_native_password',
+            ssl_disabled=True
         )
         print("✅ TCP接続成功")
         return connection
     except mysql.connector.Error as e:
         print(f"❌ TCP接続失敗: {e}")
+        
+        # SSL無効化での接続を試行
+        try:
+            print(f"🔄 SSL無効でのTCP接続を再試行中...")
+            connection = mysql.connector.connect(
+                host=db_host,
+                port=db_port,
+                user=db_user,
+                password=db_password,
+                database=db_name,
+                ssl_disabled=True,
+                autocommit=True
+            )
+            print("✅ SSL無効でのTCP接続成功")
+            return connection
+        except mysql.connector.Error as e2:
+            print(f"❌ SSL無効でのTCP接続も失敗: {e2}")
     
     return None
 

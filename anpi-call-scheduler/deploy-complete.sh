@@ -81,12 +81,16 @@ done
 
 # Cloud Tasksキューの確認・作成
 echo -e "${YELLOW}📝 Cloud Tasksキューの確認・作成中...${NC}"
-if gcloud tasks queues describe $CLOUD_TASKS_QUEUE --location=$CLOUD_TASKS_LOCATION >/dev/null 2>&1; then
-    echo -e "   ✓ Cloud Tasksキュー '$CLOUD_TASKS_QUEUE' が存在します"
+
+# Cloud Tasks共通関数の読み込み
+source "./cloud-tasks/tasks-functions.sh"
+
+# Cloud Tasksキューの作成（詳細設定付き）
+if create_cloud_tasks_queue "$PROJECT_ID" "$CLOUD_TASKS_LOCATION" "$CLOUD_TASKS_QUEUE" "100" "3600s" "3" "10s" "300s"; then
+    echo -e "   ✓ Cloud Tasksキューのセットアップが完了しました"
 else
-    echo -e "   🔄 Cloud Tasksキューを作成中..."
-    gcloud tasks queues create $CLOUD_TASKS_QUEUE --location=$CLOUD_TASKS_LOCATION
-    echo -e "   ✓ Cloud Tasksキューを作成しました"
+    echo -e "   ❌ Cloud Tasksキューのセットアップに失敗しました"
+    exit 1
 fi
 
 # ステップ 2: Cloud Run Jobのビルド・デプロイ
@@ -173,8 +177,12 @@ echo -e "   ✓ Cloud Schedulerテスト実行が完了しました"
 
 # Cloud Tasksキューの確認
 echo -e "${YELLOW}📋 作成されたCloud Tasksを確認中...${NC}"
-TASK_COUNT=$(gcloud tasks list --queue=$CLOUD_TASKS_QUEUE --location=$CLOUD_TASKS_LOCATION --format="value(name)" | wc -l)
-echo -e "   ✓ Cloud Tasksキュー内のタスク数: $TASK_COUNT"
+if check_tasks_queue_status "$CLOUD_TASKS_QUEUE" "$CLOUD_TASKS_LOCATION"; then
+    TASK_COUNT=$(gcloud tasks list --queue=$CLOUD_TASKS_QUEUE --location=$CLOUD_TASKS_LOCATION --format="value(name)" 2>/dev/null | wc -l)
+    echo -e "   ✓ Cloud Tasksキュー内のタスク数: $TASK_COUNT"
+else
+    echo -e "   ⚠️ Cloud Tasksキューの状態確認に失敗しました"
+fi
 
 echo ""
 echo -e "${GREEN}🎉 デプロイメント完了！${NC}"

@@ -39,15 +39,20 @@ echo "環境: $ENVIRONMENT"
 # Cloud Tasksキューの存在確認
 echo ""
 echo "=== 前提条件の確認 ==="
+
+# Cloud Tasks共通関数の読み込み
+source "./cloud-tasks/tasks-functions.sh"
+
 LOCATION=${CLOUD_TASKS_LOCATION:-$REGION}
 QUEUE_NAME=${CLOUD_TASKS_QUEUE:-"anpi-call-queue"}
 
-if ! gcloud tasks queues describe $QUEUE_NAME --location=$LOCATION >/dev/null 2>&1; then
+if check_tasks_queue_status "$QUEUE_NAME" "$LOCATION" >/dev/null 2>&1; then
+    echo "✓ Cloud Tasksキューが存在します"
+else
     echo "❌ Cloud Tasksキューが見つかりません"
     echo "先に ./setup-infrastructure.sh を実行してください"
     exit 1
 fi
-echo "✓ Cloud Tasksキューが存在します"
 
 # job.yamlの環境変数置換
 echo ""

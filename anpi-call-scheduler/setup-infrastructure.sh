@@ -80,32 +80,28 @@ echo "✓ Cloud Build権限設定完了"
 # 3. Cloud Tasksキューの作成
 echo ""
 echo "=== 3. Cloud Tasksキューの作成 ==="
+
+# Cloud Tasks共通関数の読み込み
+source "./cloud-tasks/tasks-functions.sh"
+
 LOCATION=${CLOUD_TASKS_LOCATION:-$REGION}
 QUEUE_NAME=${CLOUD_TASKS_QUEUE:-"anpi-call-queue"}
 
 echo "ロケーション: $LOCATION"
 echo "キュー名: $QUEUE_NAME"
 
-# キューが既に存在するかチェック
-if gcloud tasks queues describe $QUEUE_NAME --location=$LOCATION >/dev/null 2>&1; then
-    echo "✓ キュー '$QUEUE_NAME' は既に存在します"
+# Cloud Tasksキューの作成（共通関数を使用）
+if create_cloud_tasks_queue "$PROJECT_ID" "$LOCATION" "$QUEUE_NAME"; then
+    echo "✓ Cloud Tasksキューのセットアップが完了しました"
 else
-    echo "キュー '$QUEUE_NAME' を作成中..."
-    gcloud tasks queues create $QUEUE_NAME \
-        --location=$LOCATION \
-        --max-concurrent-dispatches=100 \
-        --max-retry-duration=3600s \
-        --max-attempts=3 \
-        --min-backoff=10s \
-        --max-backoff=300s
-    
-    echo "✓ キューが正常に作成されました"
+    echo "❌ Cloud Tasksキューのセットアップに失敗しました"
+    exit 1
 fi
 
-# キューの詳細を表示
+# キューの状態確認
 echo ""
-echo "=== キューの詳細 ==="
-gcloud tasks queues describe $QUEUE_NAME --location=$LOCATION
+echo "=== キューの状態確認 ==="
+check_tasks_queue_status "$QUEUE_NAME" "$LOCATION"
 
 echo ""
 echo "=== インフラストラクチャセットアップ完了 ==="

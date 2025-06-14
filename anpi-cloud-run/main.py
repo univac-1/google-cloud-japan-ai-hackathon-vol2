@@ -29,7 +29,7 @@ gcloud tasks create-http-task my-task-1 \
     --url=https://taskhandler-hsr7mrfkca-uc.a.run.app/task-handler \
     --method=POST \
     --header=Content-Type:application/json \
-    --body-content='{"message": "Direct from gcloud"}'
+    --body-content='{"message": "Direct from gcloud", "recipient_phone_number": "+819081729874"}'
 ```
 
 or 
@@ -39,7 +39,8 @@ curl -X POST "https://taskhandler-hsr7mrfkca-uc.a.run.app/enqueue-task" \
      -H "Content-Type: application/json" \
      -d '{
        "message": "Hello from Cloud Tasks!",
-       "delay_seconds": 0
+       "recipient_phone_number": "+819081729874",
+       "delay_seconds": 0}'
 ```
 
 
@@ -48,15 +49,17 @@ curl -X POST "https://taskhandler-hsr7mrfkca-uc.a.run.app/enqueue-task" \
 import json
 import logging
 import os
-import time
 from datetime import datetime, timedelta
 from typing import Optional
 
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from google.cloud import tasks_v2
 from pydantic import BaseModel
 from twilio.rest import Client
+
+load_dotenv()
 
 # ログ設定
 logging.basicConfig(level=logging.INFO)
@@ -69,17 +72,23 @@ PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "my-test-project-462302")
 LOCATION = os.environ.get("CLOUD_TASKS_LOCATION", "us-central1")
 QUEUE_NAME = os.environ.get("CLOUD_TASKS_QUEUE", "my-queue")
 
+ACCOUNT_SID = os.environ["TWILIO_ACCOUNT_SID"]
+AUTH_TOKEN = os.environ["TWILIO_AUTH_TOKEN"]
+TWILIO_PHONE_NUMBER = os.environ["TWILIO_CALL_NUMBER"]
+
 # Cloud Tasks クライアント
 tasks_client = tasks_v2.CloudTasksClient()
 
 
 class Message(BaseModel):
     message: str
+    recipient_phone_number: str
 
 
 class TaskRequest(BaseModel):
     message: str
     delay_seconds: Optional[int] = 0
+    recipient_phone_number: str
 
 
 class TaskResponse(BaseModel):
@@ -91,29 +100,20 @@ class TaskResponse(BaseModel):
 @app.post("/task-handler")
 async def task_handler(payload: Message):
     """Cloud Tasksから呼び出されるタスクハンドラー"""
-    logger.info(f"Processing task with message: {payload.message}")
-
-    # ここでタスクの実際の処理を行う
-    # 例: データベース更新、外部API呼び出し、ファイル処理など
-
-    time.sleep(2)
-    # curlで投げる場合は以下を利用
-    # import subprocess
+    logger.info(
+        f"Processing task to {payload.recipient_phone_number} with message: {payload.message}"
+    )
 
     try:
-
         # Find your Account SID and Auth Token at twilio.com/console
         # and set the environment variables. See http://twil.io/secure
-        account_sid = os.environ["TWILIO_ACCOUNT_SID"]
-        auth_token = os.environ["TWILIO_AUTH_TOKEN"]
-        call_number_from = "+18313183757"  # FIXME:: hard code
-        client = Client(account_sid, auth_token)
+        client = Client(ACCOUNT_SID, AUTH_TOKEN)
 
-        # FIXME :: hard code
+        # As an example,
         call = client.calls.create(
-            from_=call_number_from,
-            to="+819081729874",
-            url="http://demo.twilio.com/docs/voice.xml",
+            from_=TWILIO_PHONE_NUMBER,
+            to=payload.recipient_phone_number,
+            url="http://demo.twilio.com/docs/voice.xml",  # URL消したらどうなるか？
         )
 
         print(call.sid)
@@ -143,7 +143,10 @@ async def enqueue_task(task_request: TaskRequest):
         task_url = f"{current_url}/task-handler"
 
         # ペイロードを準備
-        payload = {"message": task_request.message}
+        payload = {
+            "message": task_request.message,
+            "recipient_phone_number": task_request.recipient_phone_number,
+        }
         json_payload = json.dumps(payload).encode("utf-8")
 
         # HTTPリクエストを構築
@@ -184,6 +187,29 @@ async def enqueue_task(task_request: TaskRequest):
         raise HTTPException(status_code=500, detail=f"Failed to enqueue task: {str(e)}")
 
 
+@app.post("/batch-enqueue")
+async def batch_enqueue_tasks(batch_requests: list[TaskRequest]):
+    """複数のタスクを一括でキューに追加"""
+    results = []
+
+    for i, task_req in enumerate(batch_requests):
+        try:
+            task_request = TaskRequest(
+                message=f"Batch task {i+1}: {task_req.message}",
+                recipient_phone_number=task_req.recipient_phone_number,
+                delay_seconds=i * 10,  # 10秒間隔で実行
+            )
+            result = await enqueue_task(task_request)
+            results.append(result)
+        except Exception as e:
+            logger.error(f"Failed to enqueue batch task {i+1}: {str(e)}")
+            results.append(
+                {"task_name": f"batch-task-{i+1}", "status": "failed", "error": str(e)}
+            )
+
+    return {"enqueued_tasks": results}
+
+
 @app.get("/")
 async def root():
     return {
@@ -191,6 +217,7 @@ async def root():
         "endpoints": {
             "task_handler": "/task-handler",
             "enqueue_task": "/enqueue-task",
+            "batch_enqueue": "/batch-enqueue",
         },
     }
 

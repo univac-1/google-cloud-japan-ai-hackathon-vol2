@@ -62,14 +62,17 @@ async def index_page():
 async def outbound_call_endpoint(request: OutboundCallRequest, http_request: Request):
     """API endpoint to initiate outbound calls"""
     try:
-        # Get the current request's host for webhook URL
-        # Use the request host to build the WebSocket URL
-        host = str(http_request.url.hostname)
-        if http_request.url.port:
-            host = f"{host}:{http_request.url.port}"
+        # DOMAINが設定されている場合はそちらを優先、なければリクエストホストを使用
+        if DOMAIN:
+            host = DOMAIN
+            logger.info(f"Using DOMAIN from env: {host}")
+        else:
+            host = str(http_request.url.hostname)
+            if http_request.url.port:
+                host = f"{host}:{http_request.url.port}"
+            logger.info(f"Using request host: {host}")
         
         logger.info(f"Making outbound call to {request.to_number}")
-        logger.info(f"Using host: {host}")
         
         call = client.calls.create(
             twiml=f'''<Response>
@@ -84,12 +87,14 @@ async def outbound_call_endpoint(request: OutboundCallRequest, http_request: Req
         )
         
         logger.info(f"Call initiated with SID: {call.sid}")
+        logger.info(f"WebSocket URL: wss://{host}/media-stream")
         
         return {
             "success": True,
             "call_sid": call.sid,
             "to_number": request.to_number,
-            "message": "Call initiated successfully"
+            "message": "Call initiated successfully",
+            "websocket_url": f"wss://{host}/media-stream"
         }
         
     except Exception as e:
@@ -102,8 +107,9 @@ async def outbound_call_endpoint(request: OutboundCallRequest, http_request: Req
 @app.websocket("/media-stream")
 async def handle_media_stream(websocket: WebSocket):
     """Handle WebSocket connections between Twilio and OpenAI."""
-    logger.info("Client connected")
+    logger.info("WebSocket client connecting...")
     await websocket.accept()
+    logger.info("WebSocket client connected successfully")
 
     async with websockets.connect(
         'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01',
@@ -112,6 +118,7 @@ async def handle_media_stream(websocket: WebSocket):
             "OpenAI-Beta": "realtime=v1"
         }
     ) as openai_ws:
+        logger.info("OpenAI WebSocket connected successfully")
         await initialize_session(openai_ws)
 
         # Connection specific state
@@ -153,7 +160,11 @@ async def handle_media_stream(websocket: WebSocket):
                             mark_queue.pop(0)
                             
             except WebSocketDisconnect:
-                logger.info("Client disconnected.")
+                logger.info("Twilio WebSocket client disconnected.")
+                if openai_ws.open:
+                    await openai_ws.close()
+            except Exception as e:
+                logger.error(f"Error in receive_from_twilio: {e}")
                 if openai_ws.open:
                     await openai_ws.close()
 
@@ -239,7 +250,12 @@ async def handle_media_stream(websocket: WebSocket):
                 await connection.send_json(mark_event)
                 mark_queue.append('responsePart')
 
-        await asyncio.gather(receive_from_twilio(), send_to_twilio())
+        try:
+            await asyncio.gather(receive_from_twilio(), send_to_twilio())
+        except Exception as e:
+            logger.error(f"Error in WebSocket communication: {e}")
+        finally:
+            logger.info("WebSocket session ended")
 
 async def send_initial_conversation_item(openai_ws):
     """Send initial conversation item if AI talks first."""

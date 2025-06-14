@@ -1,0 +1,76 @@
+{
+    "examples": [
+        {
+            "description": "基本的なメール送信",
+            "request": {
+                "method": "POST",
+                "url": "YOUR_FUNCTION_URL",
+                "headers": {
+                    "Content-Type": "application/json"
+                },
+                "body": {
+                    "to_email": "recipient@example.com",
+                    "to_name": "受信者名",
+                    "subject": "テストメール",
+                    "content": "<h1>こんにちは</h1><p>これはテストメールです。</p>",
+                    "from_email": "sender@example.com",
+                    "from_name": "送信者名"
+                }
+            },
+            "curl": "curl -X POST 'YOUR_FUNCTION_URL' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\n    \"to_email\": \"recipient@example.com\",\n    \"to_name\": \"受信者名\",\n    \"subject\": \"テストメール\",\n    \"content\": \"<h1>こんにちは</h1><p>これはテストメールです。</p>\",\n    \"from_email\": \"sender@example.com\",\n    \"from_name\": \"送信者名\"\n  }'"
+        },
+        {
+            "description": "最小限のメール送信（必須フィールドのみ）",
+            "request": {
+                "method": "POST",
+                "url": "YOUR_FUNCTION_URL",
+                "headers": {
+                    "Content-Type": "application/json"
+                },
+                "body": {
+                    "to_email": "test@example.com",
+                    "subject": "シンプルなテスト",
+                    "content": "これは最小限のメールです。"
+                }
+            },
+            "curl": "curl -X POST 'YOUR_FUNCTION_URL' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\n    \"to_email\": \"test@example.com\",\n    \"subject\": \"シンプルなテスト\",\n    \"content\": \"これは最小限のメールです。\"\n  }'"
+        },
+        {
+            "description": "HTMLメール送信",
+            "request": {
+                "method": "POST",
+                "url": "YOUR_FUNCTION_URL",
+                "headers": {
+                    "Content-Type": "application/json"
+                },
+                "body": {
+                    "to_email": "user@example.com",
+                    "to_name": "ユーザー様",
+                    "subject": "【重要】システム通知",
+                    "content": "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>システム通知</title></head><body><div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'><h2 style='color: #333;'>システム通知</h2><p>ユーザー様、</p><p>システムからの重要なお知らせです。</p><div style='background-color: #f8f9fa; padding: 15px; border-left: 4px solid #007bff; margin: 20px 0;'><strong>お知らせ内容:</strong><br>メール送信システムが正常に動作しています。</div><p>ご不明な点がございましたら、サポートまでお問い合わせください。</p><hr><p style='font-size: 12px; color: #666;'>このメールは自動送信されています。</p></div></body></html>",
+                    "from_email": "noreply@system.com",
+                    "from_name": "システム通知"
+                }
+            },
+            "curl": "curl -X POST 'YOUR_FUNCTION_URL' \\\n  -H 'Content-Type: application/json' \\\n  -d @- << EOF\n{\n  \"to_email\": \"user@example.com\",\n  \"to_name\": \"ユーザー様\",\n  \"subject\": \"【重要】システム通知\",\n  \"content\": \"<!DOCTYPE html><html><head><meta charset='UTF-8'><title>システム通知</title></head><body><div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'><h2 style='color: #333;'>システム通知</h2><p>ユーザー様、</p><p>システムからの重要なお知らせです。</p><div style='background-color: #f8f9fa; padding: 15px; border-left: 4px solid #007bff; margin: 20px 0;'><strong>お知らせ内容:</strong><br>メール送信システムが正常に動作しています。</div><p>ご不明な点がございましたら、サポートまでお問い合わせください。</p><hr><p style='font-size: 12px; color: #666;'>このメールは自動送信されています。</p></div></body></html>\",\n  \"from_email\": \"noreply@system.com\",\n  \"from_name\": \"システム通知\"\n}\nEOF"
+        }
+    ],
+    "response_examples": {
+        "success": {
+            "message": "Email sent successfully",
+            "success": true,
+            "sendgrid_response": {
+                "status_code": 202,
+                "message_id": "some-message-id"
+            }
+        },
+        "error_missing_fields": {
+            "error": "Missing required fields: to_email, subject",
+            "success": false
+        },
+        "error_api_key": {
+            "error": "SendGrid API key not configured",
+            "success": false
+        }
+    }
+}

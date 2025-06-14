@@ -331,31 +331,31 @@ class CallAgent(BaseAgent):
             }
 
         elif event_type == OpenAIEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED:
-            self.logger.info("openai.speech_started", extra=extra_info)
+            self.logger.debug("openai.speech_started", extra=extra_info)
 
             return {
                 "type": ServerEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED
             }
 
         elif event_type == OpenAIEventType.INPUT_AUDIO_BUFFER_SPEECH_STOPPED:
-            self.logger.info("openai.speech_stopped", extra=extra_info)
+            self.logger.debug("openai.speech_stopped", extra=extra_info)
 
         elif event_type == OpenAIEventType.INPUT_AUDIO_BUFFER_COMMITTED:
-            self.logger.info("openai.buffer_committed", extra=extra_info)
+            self.logger.debug("openai.buffer_committed", extra=extra_info)
 
         elif event_type == OpenAIEventType.CONVERSATION_ITEM_INPUT_AUDIO_TRANSCRIPTION_COMPLETED:
             user_transcript = event.get("transcript", "")
-            self.logger.info("user_speech_recognized", extra={
+            self.logger.debug("user_speech_recognized", extra={
                 "client_id": self.client_id,
                 "user_said": user_transcript,
                 "transcript_length": len(user_transcript) if user_transcript else 0
             })
 
         elif event_type == OpenAIEventType.RESPONSE_CREATED:
-            self.logger.info("ai_response_started", extra=extra_info)
+            self.logger.debug("ai_response_started", extra=extra_info)
 
         elif event_type == OpenAIEventType.RESPONSE_DONE:
-            self.logger.info("ai_response_completed", extra=extra_info)
+            self.logger.debug("ai_response_completed", extra=extra_info)
 
             return {
                 "type": ServerEventType.RESPONSE_DONE
@@ -383,14 +383,14 @@ class CallAgent(BaseAgent):
 
         elif event_type == OpenAIEventType.RESPONSE_AUDIO_TRANSCRIPT_DELTA:
             ai_transcript_delta = event.get("delta", "")
-            self.logger.info(f"AI_TRANSCRIPT_DELTA: '{ai_transcript_delta}'", extra={
+            self.logger.debug(f"AI_TRANSCRIPT_DELTA: '{ai_transcript_delta}'", extra={
                 "client_id": self.client_id,
                 "delta": ai_transcript_delta
             })
 
         elif event_type == OpenAIEventType.RESPONSE_AUDIO_TRANSCRIPT_DONE:
             transcript = event.get("transcript", "")
-            self.logger.info("ai_transcript_received", extra={
+            self.logger.debug("ai_transcript_received", extra={
                 "client_id": self.client_id,
                 "transcript": transcript
             })
@@ -403,7 +403,7 @@ class CallAgent(BaseAgent):
 
         elif event_type == OpenAIEventType.CONVERSATION_ITEM_INPUT_AUDIO_TRANSCRIPTION_DELTA:
             transcript_delta = event.get("delta", "")
-            self.logger.info(f"USER_TRANSCRIPT_DELTA: '{transcript_delta}'", extra={
+            self.logger.debug(f"USER_TRANSCRIPT_DELTA: '{transcript_delta}'", extra={
                 "client_id": self.client_id,
                 "delta": transcript_delta
             })
@@ -413,7 +413,7 @@ class CallAgent(BaseAgent):
             arguments = json.loads(event.get('arguments', '{}'))
             arguments['call_id'] = event.get('call_id')
 
-            self.logger.info("openai.function_call", extra={
+            self.logger.debug("openai.function_call", extra={
                 "client_id": self.client_id,
                 "function_name": function_name,
                 "arguments": arguments

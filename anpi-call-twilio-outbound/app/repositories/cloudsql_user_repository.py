@@ -12,17 +12,17 @@ logger = logging.getLogger(__name__)
 class CloudSQLUserRepository:
     """
     CloudSQLを使用したユーザーリポジトリの実装
-    
+
     データベース接続は分離され、ビジネスロジックに集中
     """
 
     async def get_user_by_id(self, user_id: str) -> Optional[User]:
         """
         ユーザーIDでユーザー情報を取得
-        
+
         Args:
             user_id: ユーザーID
-            
+
         Returns:
             User: ユーザー情報、見つからない場合はNone
         """
@@ -32,13 +32,13 @@ class CloudSQLUserRepository:
                 stmt = select(UserTable).where(UserTable.user_id == user_id)
                 result = await session.execute(stmt)
                 user_row = result.scalar_one_or_none()
-                
+
                 if user_row is None:
-                    logger.info(f"User not found: {user_id}")
+                    logger.warning(f"User not found: {user_id}")
                     return None
-                
+
                 return self._to_user_model(user_row)
-                
+
         except Exception as e:
             logger.error(f"Error fetching user {user_id}: {str(e)}")
             raise Exception(f"ユーザー取得中にエラーが発生しました: {str(e)}")

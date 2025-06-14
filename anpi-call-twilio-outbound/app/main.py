@@ -128,7 +128,7 @@ async def handle_media_stream(websocket: WebSocket):
     latest_media_timestamp = 0
     mark_queue = []
     response_start_timestamp_twilio = None
-    
+
     # Create CallAgent instance
     call_agent = CallAgent(client_id=stream_sid or "twilio", user_id=None)
     await call_agent.connect_to_openai()
@@ -139,30 +139,30 @@ async def handle_media_stream(websocket: WebSocket):
         nonlocal stream_sid, latest_media_timestamp
         try:
             async for message in websocket.iter_text():
-                    data = json.loads(message)
-                    logger.debug(f"Received from Twilio: {data['event']}")
+                data = json.loads(message)
+                logger.debug(f"Received from Twilio: {data['event']}")
 
-                    if data['event'] == 'media':
-                        latest_media_timestamp = int(
-                            data['media']['timestamp'])
-                        # Send audio to CallAgent
-                        try:
-                            await call_agent.process_audio(data['media']['payload'])
-                        except Exception as e:
-                            logger.error(f"Error sending audio to CallAgent: {e}")
-                            break
+                if data['event'] == 'media':
+                    latest_media_timestamp = int(
+                        data['media']['timestamp'])
+                    # Send audio to CallAgent
+                    try:
+                        await call_agent.process_audio(data['media']['payload'])
+                    except Exception as e:
+                        logger.error(f"Error sending audio to CallAgent: {e}")
+                        break
 
-                    elif data['event'] == 'start':
-                        stream_sid = data['start']['streamSid']
-                        logger.info(
-                            f"Incoming stream has started {stream_sid}")
-                        response_start_timestamp_twilio = None
-                        latest_media_timestamp = 0
-                        # last_assistant_item is handled by CallAgent
+                elif data['event'] == 'start':
+                    stream_sid = data['start']['streamSid']
+                    logger.info(
+                        f"Incoming stream has started {stream_sid}")
+                    response_start_timestamp_twilio = None
+                    latest_media_timestamp = 0
+                    # last_assistant_item is handled by CallAgent
 
-                    elif data['event'] == 'mark':
-                        if mark_queue:
-                            mark_queue.pop(0)
+                elif data['event'] == 'mark':
+                    if mark_queue:
+                        mark_queue.pop(0)
 
         except WebSocketDisconnect:
             logger.info("Twilio WebSocket client disconnected.")
@@ -175,42 +175,43 @@ async def handle_media_stream(websocket: WebSocket):
         """Receive events from the OpenAI Realtime API, send audio back to Twilio."""
         nonlocal stream_sid, response_start_timestamp_twilio
         try:
-                while True:
-                    # Get response from CallAgent
-                    response = await call_agent.get_openai_response()
-                    if response is None:
-                        await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
-                        continue
-                    
-                    event_type = response.get('type')
-                    logger.info(f"Received event from CallAgent: {event_type}")
-                    logger.debug(f"Full response: {response}")
+            while True:
+                # Get response from CallAgent
+                response = await call_agent.get_openai_response()
+                if response is None:
+                    # Small delay to prevent busy waiting
+                    await asyncio.sleep(0.01)
+                    continue
 
-                    if event_type == ServerEventType.AUDIO:
-                        # Audio is already base64 encoded from CallAgent
-                        audio_delta = {
-                            "event": "media",
-                            "streamSid": stream_sid,
-                            "media": {
-                                "payload": response['audio']
-                            }
+                event_type = response.get('type')
+                logger.debug(f"Received event from CallAgent: {event_type}")
+                logger.debug(f"Full response: {response}")
+
+                if event_type == ServerEventType.AUDIO:
+                    # Audio is already base64 encoded from CallAgent
+                    audio_delta = {
+                        "event": "media",
+                        "streamSid": stream_sid,
+                        "media": {
+                            "payload": response['audio']
                         }
-                        await websocket.send_json(audio_delta)
+                    }
+                    await websocket.send_json(audio_delta)
 
-                        if response_start_timestamp_twilio is None:
-                            response_start_timestamp_twilio = latest_media_timestamp
-                            if SHOW_TIMING_MATH:
-                                logger.debug(
-                                    f"Setting start timestamp for new response: {response_start_timestamp_twilio}ms")
+                    if response_start_timestamp_twilio is None:
+                        response_start_timestamp_twilio = latest_media_timestamp
+                        if SHOW_TIMING_MATH:
+                            logger.debug(
+                                f"Setting start timestamp for new response: {response_start_timestamp_twilio}ms")
 
-                        # CallAgent handles item tracking internally
+                    # CallAgent handles item tracking internally
 
-                        await send_mark(websocket, stream_sid)
+                    await send_mark(websocket, stream_sid)
 
-                    # Handle speech started event from CallAgent
-                    elif event_type == ServerEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED:
-                        logger.info("Speech started detected.")
-                        await handle_speech_started_event()
+                # Handle speech started event from CallAgent
+                elif event_type == ServerEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED:
+                    logger.debug("Speech started detected.")
+                    await handle_speech_started_event()
 
         except Exception as e:
             logger.error(f"Error in send_to_twilio: {e}")
@@ -219,13 +220,13 @@ async def handle_media_stream(websocket: WebSocket):
         """Handle interruption when the caller's speech starts."""
         nonlocal response_start_timestamp_twilio
         logger.info("Handling speech started event.")
-            
+
         # Clear Twilio audio buffer
         await websocket.send_json({
             "event": "clear",
             "streamSid": stream_sid
         })
-        
+
         mark_queue.clear()
         response_start_timestamp_twilio = None
 

@@ -7,11 +7,13 @@ Cloud Run Jobとしてバッチ処理を実行し、Cloud Tasksを使って将�
 import os
 import sys
 import logging
-from datetime import datetime, timedelta
-import time
+import time as time_module
+from datetime import datetime, timedelta, time
 import json
 from google.cloud import tasks_v2
 from google.protobuf import timestamp_pb2
+import mysql.connector
+from mysql.connector import Error
 
 def setup_logging():
     """ログ設定を初期化"""
@@ -37,7 +39,7 @@ def setup_logging():
 
 logger = setup_logging()
 
-def create_cloud_task(project_id, location, queue_name, schedule_time, target_url, task_name=None):
+def create_cloud_task(project_id, location, queue_name, schedule_time, target_url, task_name=None, schedule=None):
     """Cloud Tasksにタスクを作成する"""
     logger.info(f"Cloud Tasksにタスクを作成中: {task_name or 'unnamed-task'}")
     
@@ -56,9 +58,10 @@ def create_cloud_task(project_id, location, queue_name, schedule_time, target_ur
                 'Content-Type': 'application/json'
             },
             'body': json.dumps({
-                'message': 'Scheduled task execution',
+                'message': 'Scheduled anpi call task',
                 'timestamp': datetime.now().isoformat(),
-                'task_name': task_name or 'unnamed-task'
+                'task_name': task_name or 'unnamed-task',
+                'user_info': schedule.get('user_info', {}) if schedule else {}
             }).encode()
         }
     }
@@ -82,34 +85,162 @@ def create_cloud_task(project_id, location, queue_name, schedule_time, target_ur
         logger.error(f"タスク作成でエラーが発生しました: {str(e)}")
         raise
 
-def get_mock_schedules():
-    """モックの予定データを取得（将来的にはDBから取得予定）"""
-    logger.info("モック予定データを取得中...")
+def get_db_connection():
+    """データベース接続を取得する"""
+    try:
+        # Cloud SQL接続の判定
+        use_cloud_sql = os.environ.get('USE_CLOUD_SQL', 'false').lower() == 'true'
+        is_cloud_run_service = os.environ.get('K_SERVICE') is not None
+        is_cloud_run_job = os.environ.get('IS_CLOUD_RUN_JOB', 'false').lower() == 'true'
+        
+        if use_cloud_sql or is_cloud_run_service or is_cloud_run_job:
+            # Cloud SQL Proxyソケット接続（Cloud Run環境）
+            unix_socket = f"/cloudsql/{os.environ.get('GOOGLE_CLOUD_PROJECT', 'univac-aiagent')}:asia-northeast1:cloudsql-01"
+            logger.info(f"Cloud SQL接続を使用: {unix_socket}")
+            connection = mysql.connector.connect(
+                unix_socket=unix_socket,
+                user=os.environ.get('DB_USER', 'default'),
+                password=os.environ.get('DB_PASSWORD'),
+                database=os.environ.get('DB_NAME', 'default'),
+                charset='utf8mb4',
+                auth_plugin='mysql_native_password',
+                autocommit=True,
+                sql_mode='TRADITIONAL'
+            )
+        else:
+            # 通常のTCP接続（開発環境など）
+            db_host = os.environ.get('DB_HOST', '127.0.0.1')
+            logger.info(f"TCP接続を使用: {db_host}")
+            connection = mysql.connector.connect(
+                host=db_host,
+                port=int(os.environ.get('DB_PORT', '3306')),
+                user=os.environ.get('DB_USER', 'default'),
+                password=os.environ.get('DB_PASSWORD'),
+                database=os.environ.get('DB_NAME', 'default'),
+                charset='utf8mb4',
+                auth_plugin='mysql_native_password',
+                autocommit=True
+            )
+        return connection
+    except Error as e:
+        logger.error(f"データベース接続エラー: {e}")
+        raise
+
+def get_users_from_db():
+    """DBからユーザー情報を取得する"""
+    logger.info("データベースからユーザー情報を取得中...")
     
-    # サンプルの予定データ（将来的にはDBから取得）
-    current_time = datetime.now()
-    schedules = [
-        {
-            'id': 1,
-            'name': 'morning-safety-check',
-            'schedule_time': current_time + timedelta(minutes=2),
-            'target_url': 'https://httpbin.org/post'  # テスト用のエンドポイント
-        },
-        {
-            'id': 2,
-            'name': 'afternoon-safety-check',
-            'schedule_time': current_time + timedelta(minutes=5),
-            'target_url': 'https://httpbin.org/post'  # テスト用のエンドポイント
-        },
-        {
-            'id': 3,
-            'name': 'evening-safety-check',
-            'schedule_time': current_time + timedelta(minutes=10),
-            'target_url': 'https://httpbin.org/post'  # テスト用のエンドポイント
-        }
-    ]
+    connection = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        
+        # 電話希望時刻と曜日が設定されているユーザーを取得
+        query = """
+        SELECT user_id, last_name, first_name, phone_number, 
+               call_time, call_weekday
+        FROM users 
+        WHERE call_time IS NOT NULL 
+          AND call_weekday IS NOT NULL
+        """
+        
+        cursor.execute(query)
+        users = cursor.fetchall()
+        
+        logger.info(f"取得したユーザー数: {len(users)}")
+        return users
+        
+    except Error as e:
+        logger.error(f"ユーザー情報取得エラー: {e}")
+        raise
+    finally:
+        if connection and connection.is_connected():
+            cursor.close()
+            connection.close()
+
+def calculate_next_call_datetime(call_weekday, call_time):
+    """次回の安否確認実行日時を計算する"""
+    # 曜日のマッピング
+    weekday_map = {
+        'sun': 6, 'mon': 0, 'tue': 1, 'wed': 2,
+        'thu': 3, 'fri': 4, 'sat': 5
+    }
     
-    logger.info(f"取得した予定件数: {len(schedules)}")
+    # call_timeがtimedeltaの場合、timeオブジェクトに変換
+    if isinstance(call_time, timedelta):
+        total_seconds = int(call_time.total_seconds())
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        seconds = total_seconds % 60
+        call_time = time(hours, minutes, seconds)
+    
+    target_weekday = weekday_map[call_weekday]
+    current_datetime = datetime.now()
+    current_weekday = current_datetime.weekday()
+    
+    # 今日からの日数を計算
+    days_until_target = (target_weekday - current_weekday) % 7
+    
+    # 今日が指定曜日で、かつ指定時刻がまだ過ぎていない場合は今日実行
+    if days_until_target == 0:
+        target_time = datetime.combine(current_datetime.date(), call_time)
+        if target_time > current_datetime:
+            return target_time
+        else:
+            # 今日の時刻は過ぎているので来週の同じ曜日
+            days_until_target = 7
+    
+    # 指定曜日まで0日の場合は来週
+    if days_until_target == 0:
+        days_until_target = 7
+    
+    target_date = current_datetime.date() + timedelta(days=days_until_target)
+    return datetime.combine(target_date, call_time)
+
+def get_user_schedules():
+    """ユーザーの安否確認スケジュールを取得する"""
+    logger.info("ユーザーの安否確認スケジュールを生成中...")
+    
+    # データベースからユーザー情報を取得（モックは使用しない）
+    users = get_users_from_db()
+    logger.info(f"データベースからユーザー情報を取得しました: {len(users)}件")
+    
+    if not users:
+        logger.warning("取得されたユーザーが0件です")
+        return []
+    
+    schedules = []
+    
+    for user in users:
+        try:
+            next_call_datetime = calculate_next_call_datetime(
+                user['call_weekday'], 
+                user['call_time']
+            )
+            
+            # 安否確認呼び出しのターゲットURL（実際のTwilioサービスのエンドポイント）
+            target_url = os.environ.get('ANPI_CALL_URL', 'https://asia-northeast1-speech-assistant-openai-894704565810.asia-northeast1.run.app/webhook')
+            
+            schedule = {
+                'id': user['user_id'],
+                'name': f"anpi-call-{user['user_id'][:8]}",
+                'schedule_time': next_call_datetime,
+                'target_url': target_url,
+                'user_info': {
+                    'user_id': user['user_id'],
+                    'name': f"{user['last_name']} {user['first_name']}",
+                    'phone_number': user['phone_number']
+                }
+            }
+            schedules.append(schedule)
+            
+            logger.debug(f"スケジュール生成: {user['last_name']} {user['first_name']} - {next_call_datetime}")
+            
+        except Exception as e:
+            logger.error(f"ユーザー {user['user_id']} のスケジュール生成エラー: {e}")
+            continue
+    
+    logger.info(f"生成したスケジュール数: {len(schedules)}")
     return schedules
 
 def process_safety_check_schedules():
@@ -123,8 +254,8 @@ def process_safety_check_schedules():
     
     logger.info(f"Cloud Tasks設定 - プロジェクト: {project_id}, 場所: {location}, キュー: {queue_name}")
     
-    # モック予定データを取得
-    schedules = get_mock_schedules()
+    # DBからユーザーの安否確認スケジュールを取得
+    schedules = get_user_schedules()
     
     created_tasks = []
     for schedule in schedules:
@@ -139,7 +270,8 @@ def process_safety_check_schedules():
                 queue_name=queue_name,
                 schedule_time=schedule['schedule_time'],
                 target_url=schedule['target_url'],
-                task_name=task_name
+                task_name=task_name,
+                schedule=schedule
             )
             
             created_tasks.append({
@@ -193,12 +325,12 @@ def main():
         logger.error(f"安否確認スケジュール処理でエラーが発生: {str(e)}")
         return 1
     
-    # 処理のシミュレーション（5回のステップ）
+    # 処理のシミュレーション（3回のステップ）
     logger.info("追加のバッチ処理を実行中...")
-    for i in range(3):  # 短縮して3回に変更
+    for i in range(3):
         logger.info(f"処理中... {i+1}/3")
         logger.debug(f"ステップ {i+1} の詳細処理を実行")
-        time.sleep(1)
+        time_module.sleep(1)
     
     # 成功メッセージ
     logger.info("バッチ処理が正常に完了しました")

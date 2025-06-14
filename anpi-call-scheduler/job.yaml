@@ -1,31 +1,50 @@
 apiVersion: run.googleapis.com/v1
 kind: Job
 metadata:
-  name: ${JOB_NAME}
+  name: anpi-call-create-task-job
   annotations:
     run.googleapis.com/launch-stage: BETA
 spec:
   template:
+    metadata:
+      annotations:
+        run.googleapis.com/cloudsql-instances: "univac-aiagent:asia-northeast1:cloudsql-01"
     spec:
       template:
         spec:
-          restartPolicy: Never
-          taskTimeoutSeconds: ${TASK_TIMEOUT}
+          maxRetries: 1
+          timeoutSeconds: 300
           containers:
           - name: anpi-call-scheduler
-            image: gcr.io/${PROJECT_ID}/anpi-call-scheduler:latest
+            image: gcr.io/univac-aiagent/anpi-call-scheduler:latest
             resources:
               limits:
-                cpu: "${CPU}"
-                memory: "${MEMORY}"
+                cpu: "1"
+                memory: "512Mi"
             env:
             - name: GOOGLE_CLOUD_PROJECT
-              value: ${PROJECT_ID}
+              value: "univac-aiagent"
             - name: ENVIRONMENT
-              value: ${ENVIRONMENT}
+              value: "development"
             - name: LOG_LEVEL
-              value: ${LOG_LEVEL}
+              value: "debug"
             - name: CLOUD_TASKS_LOCATION
-              value: asia-northeast1
+              value: "asia-northeast1"
             - name: CLOUD_TASKS_QUEUE
               value: anpi-call-queue
+            - name: ANPI_CALL_URL
+              value: "https://asia-northeast1-speech-assistant-openai-894704565810.asia-northeast1.run.app/webhook"
+            - name: DB_HOST
+              value: "/cloudsql/univac-aiagent:asia-northeast1:cloudsql-01"
+            - name: DB_PORT
+              value: "3306"
+            - name: DB_USER
+              value: "default"
+            - name: DB_PASSWORD
+              value: "TH8V+cqXJOPqRl3Ez4RAg+mQvnlkQmqh/r14epk2BT0="
+            - name: DB_NAME
+              value: "default"
+            - name: USE_CLOUD_SQL
+              value: "true"
+            - name: IS_CLOUD_RUN_JOB
+              value: "true"

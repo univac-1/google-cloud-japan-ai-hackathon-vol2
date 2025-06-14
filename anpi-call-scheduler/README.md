@@ -1,30 +1,108 @@
-# 安否確認呼び出しスケジューラー
+# ANPI Call Scheduler
 
-GCP Cloud Run Jobsで実行される安否確認バッチ処理アプリケーションです。
-Cloud Tasksを使って予定された時刻に安否確認処理を実行します。
+安否確認コール システムのスケジューラー。データベースからユーザーの通話スケジュール設定を取得し、Cloud Tasks にタスクを登録します。
 
 ## 機能
 
-- **バッチ処理**: Cloud Run Jobsでの定期実行
-- **タスクスケジューリング**: Cloud Tasksを使った時刻指定実行
-- **安否確認処理**: 登録された予定に基づく自動呼び出し
-- **ログ機能**: 構造化ログによる処理追跡
+- PostgreSQLデータベースからユーザーの通話設定を取得
+- 曜日と時間に基づいてタスクの実行日時を計算
+- Google Cloud Tasks にタスクを登録
+- Cloud Run Jobs としてスケジュール実行
+
+## 開発環境
+
+### VS Code DevContainer を使用する場合（推奨）
+
+1. VS Code で Dev Containers 拡張機能をインストール
+2. このフォルダを VS Code で開く
+3. "Reopen in Container" を選択
+4. 環境変数ファイルを設定：
+   ```bash
+   cp .env.local .env
+   # .env ファイルを編集して実際の値を設定
+   ```
+
+### ローカル環境で直接実行する場合
+
+1. Python 3.11+ をインストール
+2. 開発環境をセットアップ：
+   ```bash
+   ./dev-setup.sh
+   ```
+3. アプリケーションを実行：
+   ```bash
+   python main.py
+   ```
+
+## 環境変数
+
+| 変数名 | 説明 | 例 |
+|--------|------|-----|
+| `GOOGLE_CLOUD_PROJECT` | Google Cloud プロジェクトID | `my-project-123` |
+| `DB_HOST` | データベースホスト | `10.0.0.1` |
+| `DB_PORT` | データベースポート | `5432` |
+| `DB_USER` | データベースユーザー | `postgres` |
+| `DB_NAME` | データベース名 | `anpi_db` |
+| `DB_PASSWORD` | データベースパスワード | `secret123` |
+| `QUEUE_NAME` | Cloud Tasks キュー名 | `anpi-call-queue` |
+| `LOCATION` | Cloud Tasks リージョン | `asia-northeast1` |
 
 ## プロジェクト構成
 
 ```
 anpi-call-scheduler/
-├── main.py             # メインのバッチ処理
-├── Dockerfile          # Dockerイメージ定義
-├── requirements.txt    # Python依存関係
-├── setup-cloud-tasks.sh # Cloud Tasksセットアップスクリプト
-├── .env               # 設定ファイル
-├── cloudbuild.yaml    # Cloud Build設定
-├── deploy.sh          # デプロイメントスクリプト
-├── job.yaml           # Cloud Run Job設定（参考用）
-├── scheduler.yaml     # Cloud Scheduler設定（参考用）
-├── docs/              # ドキュメント
-└── QUICKSTART.md      # クイックスタートガイド
+├── main.py                        # メインのバッチ処理
+├── Dockerfile                     # Dockerイメージ定義
+├── requirements.txt               # Python依存関係
+├── setup-infrastructure.sh       # インフラセットアップスクリプト
+├── deploy-application.sh          # Cloud Buildデプロイスクリプト
+├── deploy-local.sh               # ローカルDockerビルド & デプロイスクリプト
+├── cloudbuild.yaml               # Cloud Build設定
+├── job.yaml                      # Cloud Run Job設定
+├── .devcontainer/                # 開発環境設定
+│   ├── devcontainer.json         # VS Code devcontainer設定
+│   ├── Dockerfile.dev            # 開発用Dockerfile
+│   └── docker-compose.yml        # ローカル開発用Docker Compose
+├── docs/                         # ドキュメント
+└── README.md                     # このファイル
+```
+
+## 開発環境セットアップ
+
+### Option 1: VS Code devcontainer（推奨）
+
+1. VS Codeでこのフォルダを開く
+2. 「Reopen in Container」を選択
+3. devcontainerが自動的にセットアップされます
+
+### Option 2: ローカルDocker Compose
+
+```bash
+cd .devcontainer
+docker-compose up -d
+docker-compose exec anpi-scheduler bash
+```
+
+## デプロイ手順
+
+### ローカルビルド & デプロイ（推奨 - 高速）
+
+```bash
+# 高速デプロイ（ローカルでDockerビルド）
+./deploy-local.sh
+```
+
+この方式では：
+- Dockerイメージをローカルでビルド
+- Container Registryにプッシュ
+- Cloud Run Jobをデプロイ
+- Cloud Schedulerを設定
+
+### Cloud Buildデプロイ（従来方式）
+
+```bash
+# Cloud Buildでのデプロイ（時間がかかる場合あり）
+./deploy-application-cloudbuild.sh
 ```
 
 ## 実行手順

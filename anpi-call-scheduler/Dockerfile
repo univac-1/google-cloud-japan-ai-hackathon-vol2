@@ -7,7 +7,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Pythonの依存関係をインストール
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install -r requirements.txt --use-feature=fast-deps
 
 # アプリケーションコードをコピー
 COPY main.py .

@@ -13,23 +13,28 @@ steps:
       - 'push'
       - 'gcr.io/$PROJECT_ID/anpi-call-scheduler:latest'
 
+  # 既存のCloud Run Jobを削除（エラーは無視）
+  - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - 'gcloud run jobs delete ${_JOB_NAME} --region=${_REGION} --quiet || true'
+
   # Cloud Run Jobを作成/更新
   - name: 'gcr.io/cloud-builders/gcloud'
     args:
       - 'run'
       - 'jobs'
-      - 'replace'
-      - 'job.yaml'
+      - 'create'
+      - '${_JOB_NAME}'
+      - '--image=gcr.io/$PROJECT_ID/anpi-call-scheduler:latest'
       - '--region=${_REGION}'
-    env:
-      - 'PROJECT_ID=$PROJECT_ID'
-      - 'JOB_NAME=${_JOB_NAME}'
-      - 'REGION=${_REGION}'
-      - 'CPU=${_CPU}'
-      - 'MEMORY=${_MEMORY}'
-      - 'TASK_TIMEOUT=${_TASK_TIMEOUT}'
-      - 'ENVIRONMENT=${_ENVIRONMENT}'
-      - 'LOG_LEVEL=${_LOG_LEVEL}'
+      - '--cpu=${_CPU}'
+      - '--memory=${_MEMORY}'
+      - '--task-timeout=${_TASK_TIMEOUT}s'
+      - '--max-retries=1'
+      - '--set-cloudsql-instances=univac-aiagent:asia-northeast1:cloudsql-01'
+      - '--set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID,ENVIRONMENT=${_ENVIRONMENT},LOG_LEVEL=${_LOG_LEVEL},CLOUD_TASKS_LOCATION=${_REGION},CLOUD_TASKS_QUEUE=anpi-call-queue,DB_HOST=/cloudsql/univac-aiagent:asia-northeast1:cloudsql-01,DB_USER=chapphy,DB_PASSWORD=chapphy123,DB_NAME=default'
 
 # 置換変数のデフォルト値
 substitutions:

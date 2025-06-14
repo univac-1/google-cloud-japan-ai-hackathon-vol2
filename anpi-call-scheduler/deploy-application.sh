@@ -18,6 +18,7 @@ TASK_TIMEOUT=300
 MAX_RETRIES=1
 CLOUD_TASKS_LOCATION=asia-northeast1
 CLOUD_TASKS_QUEUE=anpi-call-queue
+PROJECT_ID=$(gcloud config get-value project)
 
 echo "✓ 環境変数設定完了"
 
@@ -51,6 +52,7 @@ echo "✓ Cloud Tasksキューが存在します"
 # job.yamlの環境変数置換
 echo ""
 echo "=== job.yamlの環境変数置換 ==="
+export PROJECT_ID JOB_NAME TASK_TIMEOUT CPU MEMORY ENVIRONMENT LOG_LEVEL CLOUD_TASKS_LOCATION
 envsubst < job.yaml > job-temp.yaml
 mv job-temp.yaml job.yaml
 echo "✓ job.yaml置換完了"

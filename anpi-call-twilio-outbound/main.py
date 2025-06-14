@@ -1,4 +1,9 @@
-import os, json, base64, asyncio, argparse, re
+import os
+import json
+import base64
+import asyncio
+import argparse
+import re
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.websockets import WebSocketDisconnect
@@ -48,15 +53,19 @@ LOG_EVENT_TYPES = [
 SHOW_TIMING_MATH = False
 
 if not OPENAI_API_KEY:
-    raise ValueError('Missing the OpenAI API key. Please set it in the .env file.')
+    raise ValueError(
+        'Missing the OpenAI API key. Please set it in the .env file.')
+
 
 class OutboundCallRequest(BaseModel):
     to_number: str
     message: str = None
 
+
 @app.get('/', response_class=JSONResponse)
 async def index_page():
     return {"message": "Twilio Outbound Call Server is running!"}
+
 
 @app.post("/outbound-call")
 async def outbound_call_endpoint(request: OutboundCallRequest, http_request: Request):
@@ -71,9 +80,9 @@ async def outbound_call_endpoint(request: OutboundCallRequest, http_request: Req
             if http_request.url.port:
                 host = f"{host}:{http_request.url.port}"
             logger.info(f"Using request host: {host}")
-        
+
         logger.info(f"Making outbound call to {request.to_number}")
-        
+
         call = client.calls.create(
             twiml=f'''<Response>
                 <Say voice="alice" language="ja-JP">こんにちは、AIアシスタントです。お話をお聞きします。</Say>
@@ -85,10 +94,10 @@ async def outbound_call_endpoint(request: OutboundCallRequest, http_request: Req
             to=request.to_number,
             from_=PHONE_NUMBER_FROM
         )
-        
+
         logger.info(f"Call initiated with SID: {call.sid}")
         logger.info(f"WebSocket URL: wss://{host}/media-stream")
-        
+
         return {
             "success": True,
             "call_sid": call.sid,
@@ -96,13 +105,14 @@ async def outbound_call_endpoint(request: OutboundCallRequest, http_request: Req
             "message": "Call initiated successfully",
             "websocket_url": f"wss://{host}/media-stream"
         }
-        
+
     except Exception as e:
         logger.error(f"Error making outbound call: {e}")
         return {
             "success": False,
             "error": str(e)
         }
+
 
 @app.websocket("/media-stream")
 async def handle_media_stream(websocket: WebSocket):
@@ -113,7 +123,7 @@ async def handle_media_stream(websocket: WebSocket):
 
     async with websockets.connect(
         'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01',
-        additional_headers={
+        extra_headers={
             "Authorization": f"Bearer {OPENAI_API_KEY}",
             "OpenAI-Beta": "realtime=v1"
         }
@@ -127,7 +137,7 @@ async def handle_media_stream(websocket: WebSocket):
         last_assistant_item = None
         mark_queue = []
         response_start_timestamp_twilio = None
-        
+
         async def receive_from_twilio():
             """Receive audio data from Twilio and send it to the OpenAI Realtime API."""
             nonlocal stream_sid, latest_media_timestamp
@@ -135,9 +145,10 @@ async def handle_media_stream(websocket: WebSocket):
                 async for message in websocket.iter_text():
                     data = json.loads(message)
                     logger.debug(f"Received from Twilio: {data['event']}")
-                    
+
                     if data['event'] == 'media':
-                        latest_media_timestamp = int(data['media']['timestamp'])
+                        latest_media_timestamp = int(
+                            data['media']['timestamp'])
                         audio_append = {
                             "type": "input_audio_buffer.append",
                             "audio": data['media']['payload']
@@ -147,18 +158,19 @@ async def handle_media_stream(websocket: WebSocket):
                         except Exception as e:
                             logger.error(f"Error sending audio to OpenAI: {e}")
                             break
-                        
+
                     elif data['event'] == 'start':
                         stream_sid = data['start']['streamSid']
-                        logger.info(f"Incoming stream has started {stream_sid}")
+                        logger.info(
+                            f"Incoming stream has started {stream_sid}")
                         response_start_timestamp_twilio = None
                         latest_media_timestamp = 0
                         last_assistant_item = None
-                        
+
                     elif data['event'] == 'mark':
                         if mark_queue:
                             mark_queue.pop(0)
-                            
+
             except WebSocketDisconnect:
                 logger.info("Twilio WebSocket client disconnected.")
                 if openai_ws.open:
@@ -179,7 +191,8 @@ async def handle_media_stream(websocket: WebSocket):
                         logger.debug(f"Full response: {response}")
 
                     if response.get('type') == 'response.audio.delta' and 'delta' in response:
-                        audio_payload = base64.b64encode(base64.b64decode(response['delta'])).decode('utf-8')
+                        audio_payload = base64.b64encode(
+                            base64.b64decode(response['delta'])).decode('utf-8')
                         audio_delta = {
                             "event": "media",
                             "streamSid": stream_sid,
@@ -192,7 +205,8 @@ async def handle_media_stream(websocket: WebSocket):
                         if response_start_timestamp_twilio is None:
                             response_start_timestamp_twilio = latest_media_timestamp
                             if SHOW_TIMING_MATH:
-                                logger.debug(f"Setting start timestamp for new response: {response_start_timestamp_twilio}ms")
+                                logger.debug(
+                                    f"Setting start timestamp for new response: {response_start_timestamp_twilio}ms")
 
                         # Update last_assistant_item safely
                         if response.get('item_id'):
@@ -204,9 +218,10 @@ async def handle_media_stream(websocket: WebSocket):
                     if response.get('type') == 'input_audio_buffer.speech_started':
                         logger.info("Speech started detected.")
                         if last_assistant_item:
-                            logger.info(f"Interrupting response with id: {last_assistant_item}")
+                            logger.info(
+                                f"Interrupting response with id: {last_assistant_item}")
                             await handle_speech_started_event()
-                            
+
             except Exception as e:
                 logger.error(f"Error in send_to_twilio: {e}")
 
@@ -217,11 +232,13 @@ async def handle_media_stream(websocket: WebSocket):
             if mark_queue and response_start_timestamp_twilio is not None:
                 elapsed_time = latest_media_timestamp - response_start_timestamp_twilio
                 if SHOW_TIMING_MATH:
-                    logger.debug(f"Calculating elapsed time for truncation: {latest_media_timestamp} - {response_start_timestamp_twilio} = {elapsed_time}ms")
+                    logger.debug(
+                        f"Calculating elapsed time for truncation: {latest_media_timestamp} - {response_start_timestamp_twilio} = {elapsed_time}ms")
 
                 if last_assistant_item:
                     if SHOW_TIMING_MATH:
-                        logger.debug(f"Truncating item with ID: {last_assistant_item}, Truncated at: {elapsed_time}ms")
+                        logger.debug(
+                            f"Truncating item with ID: {last_assistant_item}, Truncated at: {elapsed_time}ms")
 
                     truncate_event = {
                         "type": "conversation.item.truncate",
@@ -257,6 +274,7 @@ async def handle_media_stream(websocket: WebSocket):
         finally:
             logger.info("WebSocket session ended")
 
+
 async def send_initial_conversation_item(openai_ws):
     """Send initial conversation item if AI talks first."""
     initial_conversation_item = {
@@ -274,6 +292,7 @@ async def send_initial_conversation_item(openai_ws):
     }
     await openai_ws.send(json.dumps(initial_conversation_item))
     await openai_ws.send(json.dumps({"type": "response.create"}))
+
 
 async def initialize_session(openai_ws):
     """Control initial session with OpenAI."""
@@ -296,6 +315,7 @@ async def initialize_session(openai_ws):
     # AI が最初に話すようにする
     await send_initial_conversation_item(openai_ws)
 
+
 async def check_number_allowed(to: str) -> bool:
     """発信許可番号かどうかチェック"""
     try:
@@ -307,11 +327,13 @@ async def check_number_allowed(to: str) -> bool:
         logger.error(f"Error checking number permission: {e}")
         return False
 
+
 async def make_call(to: str):
     """アウトバウンドコールを実行"""
     if not await check_number_allowed(to):
-        raise ValueError(f"{to} は発信許可がありません。Twilio Dev PhoneまたはVerified Caller IDsに登録してください。")
-    
+        raise ValueError(
+            f"{to} は発信許可がありません。Twilio Dev PhoneまたはVerified Caller IDsに登録してください。")
+
     # TwiMLでMedia Streamを設定
     twiml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
@@ -320,11 +342,11 @@ async def make_call(to: str):
         f'<Connect><Stream url="wss://{DOMAIN}/media-stream" /></Connect>'
         '</Response>'
     )
-    
+
     try:
         call = client.calls.create(
             from_=PHONE_NUMBER_FROM,
-            to=to, 
+            to=to,
             twiml=twiml
         )
         logger.info(f"Call started with SID: {call.sid}")
@@ -333,46 +355,49 @@ async def make_call(to: str):
         print(f"   From: {PHONE_NUMBER_FROM}")
         print(f"   To: {to}")
         print(f"   Stream URL: wss://{DOMAIN}/media-stream")
-        
+
     except Exception as e:
         logger.error(f"Error making call: {e}")
         raise
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Twilio Outbound Call with OpenAI Realtime API")
+    parser = argparse.ArgumentParser(
+        description="Twilio Outbound Call with OpenAI Realtime API")
     parser.add_argument('--call', help="呼び出す番号をE.164形式で指定 (例: +8190xxxxxxxx)")
-    parser.add_argument('--server-only', action='store_true', help="サーバーのみを起動（発信は行わない）")
+    parser.add_argument('--server-only', action='store_true',
+                        help="サーバーのみを起動（発信は行わない）")
     args = parser.parse_args()
-    
+
     # server-onlyでない場合は--callが必須
     if not args.server_only and not args.call:
         print("❌ --call オプションが必要です")
         print("   例: python main.py --call=+8190xxxxxxxx")
         print("   または: python main.py --server-only")
         exit(1)
-    
+
     # 設定確認
     print("🔧 設定確認:")
-    print(f"   TWILIO_ACCOUNT_SID: {'✅ 設定済み' if TWILIO_ACCOUNT_SID else '❌ 未設定'}")
-    print(f"   TWILIO_AUTH_TOKEN: {'✅ 設定済み' if TWILIO_AUTH_TOKEN else '❌ 未設定'}")
+    print(
+        f"   TWILIO_ACCOUNT_SID: {'✅ 設定済み' if TWILIO_ACCOUNT_SID else '❌ 未設定'}")
+    print(
+        f"   TWILIO_AUTH_TOKEN: {'✅ 設定済み' if TWILIO_AUTH_TOKEN else '❌ 未設定'}")
     print(f"   PHONE_NUMBER_FROM: {PHONE_NUMBER_FROM or '❌ 未設定'}")
     print(f"   OPENAI_API_KEY: {'✅ 設定済み' if OPENAI_API_KEY else '❌ 未設定'}")
     print(f"   DOMAIN: {DOMAIN or '❌ 未設定'}")
     print(f"   PORT: {PORT}")
     print()
-    
+
     if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, PHONE_NUMBER_FROM, OPENAI_API_KEY, DOMAIN]):
         print("❌ 必要な環境変数が設定されていません。.envファイルを確認してください。")
         exit(1)
-    
-    
+
     try:
         # 発信処理（server-onlyオプションでない場合のみ）
         if not args.server_only:
             print(f"📞 発信を開始します: {args.call}")
             asyncio.run(make_call(args.call))
             print("✅ 発信が完了しました")
-        
+
         # サーバー起動
         print("🚀 サーバーを起動します...")
         uvicorn.run(app, host="0.0.0.0", port=PORT)

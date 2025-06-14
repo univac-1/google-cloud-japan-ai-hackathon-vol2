@@ -5,10 +5,6 @@ import base64
 import asyncio
 import argparse
 import re
-
-# Add the parent directory to the Python path to allow imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.websockets import WebSocketDisconnect

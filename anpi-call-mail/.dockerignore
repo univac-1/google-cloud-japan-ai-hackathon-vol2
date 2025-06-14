@@ -1,12 +1,9 @@
-# Git files
-.git
-.gitignore
-
-# Python
+# バイトコンパイルファイル
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
+
+# 配布 / パッケージング
 .Python
 build/
 develop-eggs/
@@ -24,7 +21,7 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual environments
+# 仮想環境
 venv/
 env/
 ENV/
@@ -39,18 +36,12 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Test files
-test_*.py
-*_test.py
+# ログファイル
+*.log
 
-# Local development
+# 環境変数
 .env
 .env.local
 
 # Docker
-Dockerfile
-docker-compose.yml
-.dockerignore
-
-# Documentation
-api_examples.json
+docker-compose.override.yml

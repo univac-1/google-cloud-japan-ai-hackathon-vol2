@@ -1,110 +1,279 @@
-# 🚨 安否確認システム - 自治体通報機能
+# GCP メール送信システム (AnpiCall)
 
-安否確認電話の結果、直接訪問が必要と判断された場合に自治体へ緊急通報メールを送信するGCP Cloud Functionsシステムです。
+Cloud Functions + SendGrid を使用したHTTPトリガー型メール送信システムです。
 
-**Gmail APIを使用**してメール送信を行います。
+## 📋 システム構成
+
+```
+HTTPリクエスト → Cloud Functions (HTTPトリガー) → SendGrid API → メール送信
+```
 
 ## 🚀 クイックスタート
 
-### 1. Gmail API設定
-1. Google Cloud ConsoleでGmail APIを有効化
-2. サービスアカウントを作成しJSONキーファイルをダウンロード
-3. 詳細は `gmail_setup_guide.md` を参照
+### 1. 前提条件
 
-### 2. 環境変数設定
+- Python 3.12+
+- GCP プロジェクトが作成済み
+- `gcloud` CLI がインストール・認証済み
+- SendGrid アカウントとAPIキーを取得済み
+
+### 2. SendGrid APIキー取得
+
+1. [SendGrid](https://sendgrid.com/) にサインアップ
+2. Settings > API Keys でAPIキーを作成
+3. 権限を「Mail Send」に設定
+
+### 3. ローカル開発環境のセットアップ
+
 ```bash
-./setup_env.sh
+# 環境設定
+./setup_local.sh
+
+# ローカルサーバー起動
+./local_server.py
+
+# 別ターミナルでテスト実行
+./test_email.py http://localhost:8080
 ```
 
-### 3. デプロイ実行
+### 4. GCPへのデプロイ
+
 ```bash
-./setup_and_deploy.sh
+# APIキーを指定してデプロイ
+./deploy.sh "YOUR_SENDGRID_API_KEY"
+
+# または、ダミーキーでテストデプロイ（後で更新）
+./deploy.sh
 ```
 
-### 4. 安否確認通報テスト
+### 5. APIキーの更新（本番環境）
+
 ```bash
-# デフォルト値でテスト
-./test.sh
-
-# カスタム値でテスト
-./test.sh safety@city.tokyo.jp 田中 太郎 090-1234-5678
+gcloud functions deploy send-email \
+  --update-env-vars SENDGRID_API_KEY=YOUR_REAL_API_KEY \
+  --region=asia-northeast1
 ```
 
-## 📁 ファイル構成
+### 6. 統合テスト
 
-```
-├── main.py                    # Cloud Function メインコード（Gmail API使用）
-├── requirements.txt           # Python依存関係
-├── setup_env.sh              # 環境変数設定スクリプト
-├── setup_and_deploy.sh       # 自動デプロイスクリプト
-├── setup_secret_manager.sh   # Secret Manager設定スクリプト
-├── test.sh                   # テストスクリプト
-├── gmail_setup_guide.md      # Gmail API設定ガイド
-└── README.md                 # このファイル
+```bash
+# ローカル+クラウド統合テスト
+export FUNCTION_URL="YOUR_DEPLOYED_FUNCTION_URL"
+./run_tests.py
 ```
 
-## 📧 API仕様
+### 7. Docker を使用した開発
+
+```bash
+# Docker Composeでサービスを起動
+docker-compose up --build
+
+# テスト実行
+docker-compose --profile test run email-tester
+
+# サービス停止
+docker-compose down
+```
+
+## 📡 API仕様
 
 ### エンドポイント
-```
-POST https://asia-northeast1-univac-aiagent.cloudfunctions.net/send-mail
-```
+- **URL**: Cloud Functions のデプロイ後に表示されるURL
+- **Method**: POST
+- **Content-Type**: application/json
 
-### リクエスト
+### リクエスト形式
+
 ```json
 {
-    "to": "safety@city.tokyo.jp",
-    "last_name": "田中",
-    "first_name": "太郎", 
-    "phone_number": "090-1234-5678",
-    "timestamp": "2025-06-14 13:45:30"
+  "to_email": "recipient@example.com",    // 必須: 送信先メールアドレス
+  "to_name": "受信者名",                   // オプション: 送信先名前
+  "subject": "件名",                      // 必須: メール件名
+  "content": "<h1>メール本文</h1>",        // 必須: メール本文（HTML可）
+  "from_email": "sender@example.com",     // オプション: 送信元（環境変数で設定可）
+  "from_name": "送信者名"                 // オプション: 送信者名（環境変数で設定可）
 }
 ```
 
-### レスポンス
-**成功時（200）:**
+### レスポンス形式
+
+#### 成功時 (200)
 ```json
 {
-    "status": "success",
-    "message": "Safety check notification sent to local government",
-    "target_person": "田中 太郎",
-    "phone_number": "090-1234-5678",
-    "sent_to": "safety@city.tokyo.jp",
-    "gmail_message_id": "187abc123..."
+  "message": "Email sent successfully",
+  "success": true,
+  "sendgrid_response": {
+    "status_code": 202,
+    "message_id": "xxxx-xxxx-xxxx"
+  }
 }
 ```
 
-## 🔧 使用例
+#### エラー時 (400/500)
+```json
+{
+  "error": "エラーメッセージ",
+  "success": false
+}
+```
 
-### 安否確認システムからの自動通報
+## 🧪 テスト
+
+### curlでのテスト
+
 ```bash
-curl -X POST \
+# デプロイ後に表示されるURLを使用
+curl -X POST "YOUR_FUNCTION_URL" \
   -H "Content-Type: application/json" \
   -d '{
-    "to": "safety@city.tokyo.jp",
-    "last_name": "田中",
-    "first_name": "太郎",
-    "phone_number": "090-1234-5678",
-    "timestamp": "2025-06-14 13:45:30"
-  }' \
-  $(cat function_url.txt)
+    "to_email": "test@example.com",
+    "subject": "テストメール",
+    "content": "<h1>Hello from AnpiCall!</h1><p>This is a test email.</p>"
+  }'
 ```
 
-### メール内容の特徴
-- 📧 緊急性を伝える件名と本文
-- 👤 対象者の基本情報（氏名・電話番号）
-- ⏰ 通報時刻の記録
-- 📋 自治体向けの対応手順
-- 🚨 HTMLフォーマットによる視認性向上
+### Pythonでのテスト
 
-## ⚠️ 注意事項
+```python
+import requests
+import json
 
-1. **Gmail API認証**: Google Cloud ConsoleでGmail APIの有効化とサービスアカウントの設定が必要です
-2. **送信制限**: Gmail APIには1日あたりの送信数制限があります（個人Gmail: 500通/日、Google Workspace: 10,000通/日）
-3. **緊急性**: このシステムは緊急時の自治体通報用です。テスト時は実際の自治体アドレスを使用しないでください
-4. **個人情報**: 安否確認対象者の個人情報を適切に管理してください
-5. **ドメイン全体の委任**: Google Workspaceアカウントから送信する場合は、ドメイン全体の委任設定が必要です
+url = "YOUR_FUNCTION_URL"
+data = {
+    "to_email": "test@example.com",
+    "subject": "テストメール from Python",
+    "content": "<h1>Hello!</h1><p>Pythonからのテストメールです。</p>"
+}
 
-## 📚 詳細ドキュメント
+response = requests.post(url, json=data)
+print(f"Status: {response.status_code}")
+print(f"Response: {response.json()}")
+```
 
-- [Gmail API設定ガイド](gmail_setup_guide.md) - Gmail APIの詳細設定方法
+## ⚙️ 設定
+
+### 環境変数
+
+| 変数名 | 説明 | デフォルト値 |
+|--------|------|-------------|
+| `SENDGRID_API_KEY` | SendGrid APIキー | なし（必須） |
+| `DEFAULT_FROM_EMAIL` | デフォルト送信元メールアドレス | `noreply@example.com` |
+| `DEFAULT_FROM_NAME` | デフォルト送信者名 | `AnpiCall System` |
+
+### Cloud Functions 設定
+
+- **Runtime**: Python 3.12
+- **Memory**: 256MB
+- **Timeout**: 60秒
+- **Region**: asia-northeast1 (東京)
+- **Trigger**: HTTP (認証不要)
+
+## 🔒 セキュリティ
+
+### 本番環境での推奨設定
+
+1. **Secret Manager の使用**
+```bash
+# APIキーをSecret Managerに保存
+gcloud secrets create sendgrid-api-key --data-file=-
+echo "YOUR_API_KEY" | gcloud secrets create sendgrid-api-key --data-file=-
+
+# Cloud Functions に権限付与
+gcloud secrets add-iam-policy-binding sendgrid-api-key \
+  --member="serviceAccount:YOUR_PROJECT@appspot.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+2. **認証の追加**
+```bash
+# 認証を要求するようにデプロイ
+gcloud functions deploy send-email \
+  --no-allow-unauthenticated \
+  --region=asia-northeast1
+```
+
+3. **IPアドレス制限**
+- Cloud Armor または VPC Service Controls を使用
+
+## 🐛 トラブルシューティング
+
+### よくあるエラー
+
+1. **"SENDGRID_API_KEY environment variable not set"**
+   - APIキーが設定されていません
+   - `deploy.sh` でAPIキーを指定してデプロイしてください
+
+2. **"Content-Type must be application/json"**
+   - リクエストヘッダーに `Content-Type: application/json` を設定してください
+
+3. **"Missing required fields"**
+   - `to_email`, `subject`, `content` は必須フィールドです
+
+### ログの確認
+
+```bash
+# Cloud Functions のログを確認
+gcloud functions logs read send-email --region=asia-northeast1
+```
+
+## 📊 モニタリング
+
+### Cloud Monitoring での監視項目
+
+- 実行回数
+- エラー率
+- 実行時間
+- メモリ使用量
+
+### アラート設定例
+
+```bash
+# エラー率が5%を超えた場合のアラート
+gcloud alpha monitoring policies create \
+  --policy-from-file=alert-policy.yaml
+```
+
+## 🔄 アップデート
+
+```bash
+# 新しいバージョンをデプロイ
+./deploy.sh "YOUR_SENDGRID_API_KEY"
+
+# 特定の環境変数のみ更新
+gcloud functions deploy send-email \
+  --update-env-vars SENDGRID_API_KEY=NEW_API_KEY \
+  --region=asia-northeast1
+```
+
+## 🛠️ 開発ツール
+
+### ファイル構成
+
+```
+anpi-call-mail/
+├── main.py              # メイン関数（Cloud Functions用）
+├── local_server.py      # ローカル開発サーバー
+├── requirements.txt     # Python依存関係
+├── deploy.sh           # GCPデプロイスクリプト
+├── setup_local.sh      # ローカル環境セットアップ
+├── test_email.py       # APIテストスクリプト
+├── run_tests.py        # 統合テストスクリプト
+├── docker-compose.yml  # Docker設定
+├── Dockerfile          # Dockerイメージ定義
+├── .env.example        # 環境変数の例
+└── README.md           # このファイル
+```
+
+### 開発ワークフロー
+
+1. **ローカル開発**: `./local_server.py` でローカルテスト
+2. **単体テスト**: `./test_email.py` でAPI動作確認
+3. **統合テスト**: `./run_tests.py` で全体テスト
+4. **デプロイ**: `./deploy.sh` でGCP展開
+5. **本番テスト**: 実際のFunction URLでテスト
+
+## 📚 参考資料
+
+- [SendGrid API Documentation](https://docs.sendgrid.com/api-reference/mail-send/mail-send)
+- [Cloud Functions Documentation](https://cloud.google.com/functions/docs)
+- [Cloud Functions Python Runtime](https://cloud.google.com/functions/docs/concepts/python-runtime)

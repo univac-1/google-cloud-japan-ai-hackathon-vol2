@@ -1,71 +1,28 @@
 import os
-import functions_framework
 import json
-import base64
-from flask import jsonify
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from googleapiclient.discovery import build
-from google.oauth2 import service_account
+import logging
+from flask import Request, jsonify
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail, Email, To, Content
 
+# ログ設定
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-def create_gmail_service():
-    """Gmail APIサービスを作成"""
-    # サービスアカウントキーを環境変数から取得
-    service_account_info = json.loads(os.environ.get('GOOGLE_SERVICE_ACCOUNT_KEY', '{}'))
-    
-    if not service_account_info:
-        raise ValueError("Google Service Account key not configured")
-    
-    # サービスアカウント認証
-    credentials = service_account.Credentials.from_service_account_info(
-        service_account_info,
-        scopes=['https://www.googleapis.com/auth/gmail.send']
-    )
-    
-    # Gmail APIサービスを構築
-    service = build('gmail', 'v1', credentials=credentials)
-    return service
-
-
-def create_message(sender, to, subject, message_text):
-    """メールメッセージを作成"""
-    message = MIMEMultipart('alternative')
-    message['to'] = to
-    message['from'] = sender
-    message['subject'] = subject
-    
-    # HTMLメッセージを追加
-    html_part = MIMEText(message_text, 'html', 'utf-8')
-    message.attach(html_part)
-    
-    # Base64エンコード
-    raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
-    return {'raw': raw_message}
-
-
-def send_message(service, user_id, message):
-    """メッセージを送信"""
-    try:
-        message = service.users().messages().send(userId=user_id, body=message).execute()
-        return message
-    except Exception as error:
-        print(f'An error occurred: {error}')
-        raise error
-
-
-@functions_framework.http
-def send_mail(request):
+def send_email(request: Request):
     """
-    安否確認電話の結果、直接訪問が必要と判断された場合に自治体に送信するCloud Function
-    Gmail APIを使用してメール送信を行います。
+    Cloud Functions HTTPトリガー関数
+    SendGrid APIを使用してメールを送信
     
-    リクエストボディの例:
+    HTTPリクエスト例:
+    POST /
     {
-        "to": "local-gov@city.example.jp",
-        "last_name": "田中",
-        "first_name": "太郎",
-        "phone_number": "090-1234-5678"
+        "to_email": "recipient@example.com",
+        "to_name": "受信者名",
+        "subject": "件名",
+        "content": "メール本文",
+        "from_email": "sender@example.com",
+        "from_name": "送信者名"
     }
     """
     
@@ -78,139 +35,97 @@ def send_mail(request):
             'Access-Control-Max-Age': '3600'
         }
         return ('', 204, headers)
-    
+
     headers = {
         'Access-Control-Allow-Origin': '*'
     }
-    
+
     try:
-        # サービスアカウントキーを環境変数から取得
-        service_account_info = json.loads(os.environ.get('GOOGLE_SERVICE_ACCOUNT_KEY', '{}'))
-        
-        # Gmail APIサービスを作成
-        service = create_gmail_service()
-        
-        # リクエストボディからメール情報を取得
-        request_json = request.get_json(silent=True)
-        if not request_json:
-            return jsonify({'error': 'Invalid JSON in request body'}), 400, headers
-        
-        # 必須パラメータのチェック
-        required_fields = ['to', 'last_name', 'first_name', 'phone_number']
-        for field in required_fields:
-            if field not in request_json:
-                return jsonify({'error': f'Missing required field: {field}'}), 400, headers
-        
-        # 送信者メールアドレス（サービスアカウントのメールアドレスを使用）
-        service_account_email = service_account_info.get('client_email', 'gmail-sender-sa@univac-aiagent.iam.gserviceaccount.com')
-        from_email = service_account_email
-        
-        # 安否確認対象者の情報
-        target_name = f"{request_json['last_name']} {request_json['first_name']}"
-        phone_number = request_json['phone_number']
-        
-        # メール件名を生成
-        subject = f"【緊急】安否確認 - 直接訪問要請 ({target_name}様)"
-        
-        # メール本文を生成
-        content = f"""
-<html>
-<body>
-<h2 style="color: #d32f2f;">【緊急】安否確認システム - 直接訪問要請</h2>
-
-<div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; margin: 10px 0; border-radius: 5px;">
-<strong>⚠️ 直接訪問が必要と判断されました</strong>
-</div>
-
-<h3>対象者情報</h3>
-<table style="border-collapse: collapse; width: 100%; max-width: 500px;">
-<tr style="background-color: #f5f5f5;">
-    <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold;">氏名</td>
-    <td style="border: 1px solid #ddd; padding: 8px;">{target_name}様</td>
-</tr>
-<tr>
-    <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold;">電話番号</td>
-    <td style="border: 1px solid #ddd; padding: 8px;">{phone_number}</td>
-</tr>
-<tr style="background-color: #f5f5f5;">
-    <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold;">通報時刻</td>
-    <td style="border: 1px solid #ddd; padding: 8px;">{request_json.get('timestamp', '記載なし')}</td>
-</tr>
-</table>
-
-<h3>判定理由</h3>
-<div style="background-color: #f8f9fa; padding: 10px; border-left: 4px solid #d32f2f; margin: 10px 0;">
-安否確認電話において以下の状況が確認されました：
-<ul>
-<li>電話に応答がない状況が継続</li>
-<li>または、応答があったが安否に懸念がある状況</li>
-<li>緊急性が高いと AI システムが判定</li>
-</ul>
-</div>
-
-<h3>対応要請</h3>
-<div style="background-color: #e8f5e8; padding: 15px; border: 1px solid #c8e6c8; border-radius: 5px; margin: 10px 0;">
-<strong>✅ 実施していただきたい対応</strong>
-<ol>
-<li><strong>直接訪問による安否確認</strong></li>
-<li>必要に応じて緊急サービスの手配</li>
-<li>確認結果の記録と報告</li>
-</ol>
-</div>
-
-<div style="margin-top: 20px; padding: 10px; background-color: #f0f0f0; border-radius: 5px; font-size: 12px; color: #666;">
-このメールは安否確認システムから自動送信されています。<br>
-送信時刻: {request_json.get('timestamp', 'システム時刻未取得')}<br>
-システム管理者: 安否確認AI システム
-</div>
-</body>
-</html>
-        """
-        
-        # デバッグモード（実際のメール送信をスキップ）
-        debug_mode = os.environ.get('DEBUG_MODE', 'false').lower() == 'true'
-        
-        if debug_mode:
-            # デバッグモード: メール送信をシミュレート
-            print(f"[DEBUG MODE] メール送信をシミュレートしました")
-            print(f"[DEBUG] From: {from_email}")
-            print(f"[DEBUG] To: {request_json['to']}")
-            print(f"[DEBUG] Subject: {subject}")
-            print(f"[DEBUG] Content length: {len(content)} chars")
-            
-            # レスポンス返却（デバッグモード）
+        # SendGrid APIキーを環境変数から取得
+        api_key = os.environ.get('SENDGRID_API_KEY')
+        if not api_key:
+            logger.error("SENDGRID_API_KEY environment variable not set")
             return jsonify({
-                'status': 'success',
-                'message': 'Safety check notification sent to local government (DEBUG MODE)',
-                'target_person': target_name,
-                'phone_number': phone_number,
-                'sent_to': request_json['to'],
-                'gmail_message_id': 'debug_mode_simulation',
-                'debug_mode': True,
-                'from_email': from_email
-            }), 200, headers
+                'error': 'SendGrid API key not configured',
+                'success': False
+            }), 500, headers
+
+        # リクエストボディを解析
+        if request.content_type == 'application/json':
+            request_json = request.get_json(silent=True)
         else:
-            # 実際のメール送信
-            message = create_message(from_email, request_json['to'], subject, content)
-            
-            # メール送信（'me'はサービスアカウントのメールアドレスを使用）
-            sent_message = send_message(service, 'me', message)
-            
-            # レスポンス返却
             return jsonify({
-                'status': 'success',
-                'message': 'Safety check notification sent to local government',
-                'target_person': target_name,
-                'phone_number': phone_number,
-                'sent_to': request_json['to'],
-                'gmail_message_id': sent_message.get('id', ''),
-                'from_email': from_email
-            }), 200, headers
+                'error': 'Content-Type must be application/json',
+                'success': False
+            }), 400, headers
+
+        if not request_json:
+            return jsonify({
+                'error': 'Invalid JSON payload',
+                'success': False
+            }), 400, headers
+
+        # 必須パラメータの検証
+        required_fields = ['to_email', 'subject', 'content']
+        missing_fields = [field for field in required_fields if not request_json.get(field)]
         
-    except Exception as e:
-        print(f"Error sending email: {str(e)}")
+        if missing_fields:
+            return jsonify({
+                'error': f'Missing required fields: {", ".join(missing_fields)}',
+                'success': False
+            }), 400, headers
+
+        # メールパラメータを取得
+        to_email = request_json['to_email']
+        to_name = request_json.get('to_name', to_email)
+        subject = request_json['subject']
+        content = request_json['content']
+        from_email = request_json.get('from_email', os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@example.com'))
+        from_name = request_json.get('from_name', os.environ.get('DEFAULT_FROM_NAME', 'System'))
+
+        # メールオブジェクトを作成
+        from_email_obj = Email(from_email, from_name)
+        to_email_obj = To(to_email, to_name)
+        content_obj = Content("text/html", content)
+        
+        mail = Mail(
+            from_email=from_email_obj,
+            to_emails=to_email_obj,
+            subject=subject,
+            html_content=content_obj
+        )
+
+        # SendGrid APIクライアントを初期化
+        sg = SendGridAPIClient(api_key)
+        
+        # メールを送信
+        response = sg.send(mail)
+        
+        logger.info(f"Email sent successfully. Status code: {response.status_code}")
+        logger.info(f"Response headers: {response.headers}")
+        
         return jsonify({
-            'status': 'error',
-            'message': f'Failed to send email: {str(e)}',
-            'error_details': str(e)
+            'message': 'Email sent successfully',
+            'success': True,
+            'sendgrid_response': {
+                'status_code': response.status_code,
+                'message_id': response.headers.get('X-Message-Id', 'N/A')
+            }
+        }), 200, headers
+
+    except Exception as e:
+        logger.error(f"Error sending email: {str(e)}")
+        return jsonify({
+            'error': f'Failed to send email: {str(e)}',
+            'success': False
         }), 500, headers
+
+def health_check(request: Request):
+    """
+    ヘルスチェック用エンドポイント
+    """
+    return jsonify({
+        'status': 'healthy',
+        'service': 'email-sender',
+        'version': '1.0.0'
+    }), 200

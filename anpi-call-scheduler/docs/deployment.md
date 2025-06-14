@@ -63,6 +63,14 @@ gcloud run jobs deploy anpi-call-scheduler-dev \
 
 ### 3. Cloud Schedulerの設定
 
+推奨方法：
+```bash
+# 共通関数を使用した統一的な設定
+./cloud-scheduler/deploy-scheduler.sh
+```
+
+手動設定（参考）：
+
 ```bash
 # 既存のスケジューラーを削除（存在する場合）
 gcloud scheduler jobs delete anpi-call-scheduler-dev-hourly \

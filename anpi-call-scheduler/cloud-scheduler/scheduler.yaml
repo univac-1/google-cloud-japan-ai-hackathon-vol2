@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: anpi-call-scheduler-config
+data:
+  # Cloud Scheduler設定
+  scheduler_name: "anpi-call-scheduler-job"
+  schedule: "0 * * * *"  # 毎時0分実行
+  timezone: "Asia/Tokyo"
+  location: "asia-northeast1"
+  
+  # Cloud Run Job設定
+  job_name: "anpi-call-create-task-job"
+  job_region: "asia-northeast1"
+  
+  # サービスアカウント
+  service_account: "894704565810-compute@developer.gserviceaccount.com"
+  
+  # 説明
+  description: "安否確認コールスケジューラー - 毎時0分にCloud Run Jobを実行してタスクを作成"

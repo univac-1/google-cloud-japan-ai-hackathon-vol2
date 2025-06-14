@@ -38,7 +38,7 @@ graph TB
     
     %% ファイル構成表示
     subgraph "リポジトリ構成"
-        FILES[main.py<br/>Dockerfile<br/>requirements.txt<br/>cloudbuild.yaml<br/>deploy.sh<br/>job.yaml<br/>scheduler.yaml<br/>.env]
+        FILES[main.py<br/>Dockerfile<br/>requirements.txt<br/>cloudbuild.yaml<br/>deploy.sh<br/>job.yaml<br/>cloud-scheduler/<br/>.env]
     end
     
     REPO --> FILES

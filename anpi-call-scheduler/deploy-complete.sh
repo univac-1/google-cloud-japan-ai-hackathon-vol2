@@ -133,29 +133,16 @@ fi
 # ステップ 4: Cloud Schedulerの設定
 echo -e "${BLUE}⏰ ステップ 4: Cloud Schedulerの設定${NC}"
 
-# 既存のスケジューラージョブの削除
-echo -e "${YELLOW}🗑️ 既存のスケジューラージョブを確認中...${NC}"
-if gcloud scheduler jobs describe $SCHEDULER_NAME --location=$REGION >/dev/null 2>&1; then
-    echo -e "   🔄 既存のスケジューラージョブを削除中..."
-    gcloud scheduler jobs delete $SCHEDULER_NAME --location=$REGION --quiet
-    echo -e "   ✓ 既存のスケジューラージョブを削除しました"
+# 共通関数の読み込み
+source "./cloud-scheduler/scheduler-functions.sh"
+
+# Cloud Schedulerの作成（OAuth認証方式）
+if create_cloud_scheduler_oauth "$PROJECT_ID" "$REGION" "$SCHEDULER_NAME" "$JOB_NAME" "$SCHEDULE" "$TIMEZONE" "$SERVICE_ACCOUNT"; then
+    echo -e "   ✓ Cloud Schedulerジョブを作成しました"
+else
+    echo -e "   ❌ Cloud Schedulerジョブの作成に失敗しました"
+    exit 1
 fi
-
-# Cloud Schedulerジョブの作成
-echo -e "${YELLOW}📅 Cloud Schedulerジョブを作成中...${NC}"
-gcloud scheduler jobs create http $SCHEDULER_NAME \
-    --location=$REGION \
-    --schedule="$SCHEDULE" \
-    --time-zone="$TIMEZONE" \
-    --uri="https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT_ID/jobs/$JOB_NAME:run" \
-    --http-method=POST \
-    --oauth-service-account-email="$SERVICE_ACCOUNT" \
-    --oauth-token-scope="https://www.googleapis.com/auth/cloud-platform" \
-    --max-retry-attempts=1 \
-    --min-backoff=10s \
-    --max-backoff=60s
-
-echo -e "   ✓ Cloud Schedulerジョブを作成しました"
 
 # ステップ 5: 動作確認
 echo -e "${BLUE}🧪 ステップ 5: 動作確認${NC}"

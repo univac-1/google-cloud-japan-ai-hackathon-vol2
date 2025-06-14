@@ -70,31 +70,16 @@ echo "✓ Cloud Buildデプロイメント完了"
 echo ""
 echo "=== Cloud Scheduler設定 ==="
 
-# 既存のスケジューラージョブの確認と削除
-if gcloud scheduler jobs describe "$SCHEDULER_NAME" --location="$REGION" &>/dev/null; then
-    echo "既存のスケジューラージョブを削除中..."
-    gcloud scheduler jobs delete "$SCHEDULER_NAME" --location="$REGION" --quiet
+# 共通関数の読み込み
+source "./cloud-scheduler/scheduler-functions.sh"
+
+# Cloud Schedulerの作成（OAuth認証方式）
+if create_cloud_scheduler_oauth "$PROJECT_ID" "$REGION" "$SCHEDULER_NAME" "$JOB_NAME" "$SCHEDULE" "Asia/Tokyo" "${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"; then
+    echo "✓ Cloud Scheduler設定完了"
+else
+    echo "❌ Cloud Scheduler設定に失敗しました"
+    exit 1
 fi
-
-# プロジェクト番号の取得
-if [ -z "$PROJECT_NUMBER" ]; then
-    PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
-fi
-
-# Cloud Schedulerジョブの作成（Cloud Run Job用 - OAuth認証）
-gcloud scheduler jobs create http "$SCHEDULER_NAME" \
-    --location="$REGION" \
-    --schedule="$SCHEDULE" \
-    --time-zone="Asia/Tokyo" \
-    --uri="https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT_ID/jobs/$JOB_NAME:run" \
-    --http-method=POST \
-    --oauth-service-account-email="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-    --oauth-token-scope="https://www.googleapis.com/auth/cloud-platform" \
-    --max-retry-attempts=1 \
-    --min-backoff=10s \
-    --max-backoff=60s
-
-echo "✓ Cloud Scheduler設定完了"
 
 echo ""
 echo "=== デプロイメント完了 ==="

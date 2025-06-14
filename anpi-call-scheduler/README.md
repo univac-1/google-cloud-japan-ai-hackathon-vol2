@@ -40,9 +40,14 @@ anpi-call-scheduler/
 ├── job.yaml                     # Cloud Run Job設定
 │
 ├── deploy-complete.sh           # 完全自動デプロイスクリプト（推奨）
-├── setup-scheduler.sh           # Cloud Scheduler 設定専用
 ├── deploy-application.sh        # アプリケーションデプロイ
 ├── setup-infrastructure.sh     # インフラ設定
+│
+├── cloud-scheduler/             # Cloud Scheduler設定
+│   ├── scheduler-functions.sh  # 共通関数ライブラリ
+│   ├── deploy-scheduler.sh     # Cloud Scheduler専用デプロイ（推奨）
+│   ├── scheduler.yaml          # スケジューラー設定定義
+│   └── README.md               # Cloud Scheduler使用方法
 │
 ├── cloudbuild.yaml             # Cloud Build設定
 ├── test_db_connection.py       # データベース接続テスト
@@ -66,7 +71,7 @@ anpi-call-scheduler/
 | `main.py` | アプリケーション | バッチ処理のメインロジック |
 | `job.yaml` | Cloud Run Job設定 | リソース制限、環境変数、接続設定 |
 | `deploy-complete.sh` | 完全デプロイ | 全工程を自動化する統合スクリプト |
-| `setup-scheduler.sh` | Scheduler設定 | Cloud Scheduler の作成・管理専用 |
+| `cloud-scheduler/deploy-scheduler.sh` | Scheduler設定 | Cloud Scheduler の作成・管理専用 |
 | `Dockerfile` | コンテナ | Dockerイメージビルド設定 |
 | `requirements.txt` | 依存関係 | Python パッケージ定義 |
 
@@ -109,8 +114,8 @@ anpi-call-scheduler/
 #### 3. Cloud Scheduler のみ設定
 
 ```bash
-# Cloud Scheduler のみ作成・設定
-./setup-scheduler.sh
+# Cloud Scheduler のみ作成・設定（推奨）
+./cloud-scheduler/deploy-scheduler.sh
 ```
 
 ### 動作確認

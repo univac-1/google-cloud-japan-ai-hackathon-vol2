@@ -2,11 +2,30 @@
 
 本ディレクトリは、安否確認コールシステムで使用するCloud Run Jobsの作成・管理を行う専用資材です。
 
+## 機能概要
+
+### 📞 即時実行機能
+- **現在時刻チェック**: データベースのユーザーテーブルを確認し、現在時刻に基づいて即座に電話をかけるべき対象者を特定
+- **許容時間設定**: 指定時刻の前後5分（設定可能）以内なら即時実行対象として判定
+- **即時タスク作成**: 対象者に対して即座にCloud Tasksタスクを作成・実行
+
+### 🔄 処理フロー
+1. **データベース接続**: Cloud SQLに接続してユーザー情報を取得
+2. **即時実行判定**: 現在時刻と各ユーザーの設定時刻（曜日・時刻）を比較
+3. **タスク作成**: 即時実行対象者のCloud Tasksタスクを作成
+4. **ログ出力**: 処理結果と作成タスク数をログに記録
+
+### 💡 アプリケーションの仕様
+このアプリケーションは**即時実行専用**に設計されています：
+- 将来のスケジューリング機能は実装されていません
+- 現在時刻に基づいて、今すぐ電話をかけるべきユーザーのみを処理します
+- 定期的に実行（例：毎分）することで、適切なタイミングでの安否確認呼び出しを実現します
+
 ## ディレクトリ構成
 
 ```
 cloud-run-jobs/
-├── main.py                   # メインアプリケーション（安否確認スケジューラー）
+├── main.py                   # メインアプリケーション（即時実行安否確認スケジューラー）
 ├── requirements.txt          # Python依存関係
 ├── Dockerfile               # Cloud Run Jobs用Dockerイメージ定義
 ├── cloudbuild.yaml          # Cloud Build設定
@@ -21,7 +40,7 @@ cloud-run-jobs/
 
 | ファイル名 | 用途 | 説明 |
 |-----------|------|------|
-| `main.py` | アプリケーション | 安否確認スケジューラーのメイン処理 |
+| `main.py` | アプリケーション | 即時実行専用の安否確認スケジューラー |
 | `requirements.txt` | 依存関係 | Python パッケージの依存関係定義 |
 | `Dockerfile` | コンテナ定義 | Cloud Run Jobs用のDockerイメージ定義 |
 | `cloudbuild.yaml` | ビルド設定 | Cloud Buildでのビルド・デプロイ設定 |
@@ -106,6 +125,46 @@ export TASK_TIMEOUT="600"
 
 # デプロイ実行
 ./cloud-run-jobs/deploy-job.sh deploy
+```
+
+### 🔧 即時実行機能の設定
+
+| 変数名 | 説明 | デフォルト値 | 例 |
+|--------|------|-------------|-----|
+| `IMMEDIATE_CALL_TOLERANCE_MINUTES` | 即時実行の許容時間（分） | `5` | `10` |
+
+### 基本設定
+
+| 変数名 | 説明 | デフォルト値 |
+|--------|------|-------------|
+| `ENVIRONMENT` | 実行環境 | `development` |
+| `LOG_LEVEL` | ログレベル | `debug` |
+| `GOOGLE_CLOUD_PROJECT` | Google Cloud プロジェクトID | `univac-aiagent` |
+| `CLOUD_TASKS_LOCATION` | Cloud Tasksのロケーション | `asia-northeast1` |
+| `CLOUD_TASKS_QUEUE` | Cloud Tasksキュー名 | `anpi-call-queue` |
+| `ANPI_CALL_URL` | 安否確認サービスURL | `https://httpbin.org/post` |
+
+### データベース設定
+
+| 変数名 | 説明 | デフォルト値 |
+|--------|------|-------------|
+| `USE_CLOUD_SQL` | Cloud SQL使用フラグ | `true` |
+| `DB_USER` | データベースユーザー | `default` |
+| `DB_PASSWORD` | データベースパスワード | - |
+| `DB_NAME` | データベース名 | `default` |
+
+### 設定例
+
+```bash
+# 即時実行の許容時間を10分に設定
+export IMMEDIATE_CALL_TOLERANCE_MINUTES="10"
+
+# 本番環境設定
+export ENVIRONMENT="production"
+export LOG_LEVEL="info"
+
+# デプロイ実行
+./cloud-run-jobs/deploy-job.sh build
 ```
 
 ### 🔗 メインデプロイスクリプトとの統合

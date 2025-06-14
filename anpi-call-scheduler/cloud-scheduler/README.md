@@ -20,10 +20,11 @@
 
 ### 実行フロー
 
-1. **定時実行**: 毎時0分にCloud Schedulerがトリガー
+1. **定期実行**: 毎分Cloud Schedulerがトリガー（即時実行対応）
 2. **HTTP POST**: Cloud Run JobのAPI エンドポイントを呼び出し
-3. **バッチ処理**: Cloud Run Jobでスケジュール計算・タスク登録
-4. **タスク実行**: Cloud Tasksキューから順次実行
+3. **即時判定**: Cloud Run Jobで現在時刻に基づく即時実行対象者の判定
+4. **タスク作成**: 対象者に対して即座にCloud Tasksタスクを作成
+5. **通話実行**: Cloud Tasksキューから即座に実行
 
 ## 使用方法
 

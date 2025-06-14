@@ -1,32 +1,34 @@
 # ANPI Call Scheduler
 
-安否確認コール システムのスケジューラー。データベースからユーザーの通話スケジュール設定を取得し、Cloud Tasks にタスクを登録します。
+安否確認コール システムのスケジューラー。データベースからユーザーの通話設定を取得し、現在時刻に基づいて即座に実行すべき安否確認を判定してCloud Tasksにタスクを作成します。
 
 ## プロジェクト概要
 
 ### 機能
 
 - MySQL（Cloud SQL）データベースからユーザーの通話設定を取得
-- 曜日と時間に基づいてタスクの実行日時を計算
-- Google Cloud Tasks にタスクを登録
-- Cloud Run Jobs としてスケジュール実行
-- Cloud Scheduler による定期実行（毎時0分）
+- 現在時刻と設定された曜日・時間を比較して即時実行判定
+- Google Cloud Tasks に即時実行タスクを作成
+- Cloud Run Jobs として定期実行
+- Cloud Scheduler による定期実行（毎分または設定間隔）
 
 ### システム構成
 
-- **Cloud Scheduler**: 毎時0分に Cloud Run Job をトリガー
-- **Cloud Run Job**: Python バッチ処理でスケジュール計算・タスク登録
+- **Cloud Scheduler**: 定期的に Cloud Run Job をトリガー（推奨：毎分実行）
+- **Cloud Run Job**: Python バッチ処理で即時実行判定・タスク作成
 - **Cloud SQL**: ユーザー情報と通話設定を格納
 - **Cloud Tasks**: 個別の安否確認タスクをキューイング
 - **外部連携**: Twilio サービスによる音声通話実行
 
 ### 処理の流れ
 
-1. **定時実行**: Cloud Scheduler が毎時0分に Cloud Run Job をトリガー
-2. **データ取得**: usersテーブルから通話設定（曜日・時刻）を取得
-3. **スケジュール計算**: 各ユーザーの次回通話日時を計算
-4. **タスク登録**: Cloud Tasks に個別の安否確認タスクを登録
-5. **通話実行**: 指定時刻にTwilioサービスがWebhook経由で通話実行
+1. **現在時刻チェック**: データベースから全ユーザーの通話設定を取得
+2. **即時実行判定**: 現在時刻と各ユーザーの設定（曜日・時刻）を比較
+3. **許容時間内確認**: 指定時刻の前後5分以内（設定可能）かを判定
+4. **即時タスク作成**: 条件に一致するユーザーのCloud Tasksタスクを即座に作成
+5. **通話実行**: 作成されたタスクによりTwilioサービスがWebhook経由で通話実行
+
+**即時実行専用設計**: このアプリケーションは将来のスケジューリング機能を持たず、現在時刻に基づく即時実行のみを行います。定期的な実行により適切なタイミングでの安否確認を実現します。
 
 詳細な処理フローは [📋 処理フロー詳細](docs/processing-flow.md) を参照してください。
 
@@ -191,6 +193,7 @@ gcloud tasks queues describe anpi-call-queue --location=asia-northeast1
 | `GOOGLE_CLOUD_PROJECT` | Google Cloud プロジェクトID | - |
 | `CLOUD_TASKS_LOCATION` | Cloud Tasksのロケーション | `asia-northeast1` |
 | `CLOUD_TASKS_QUEUE` | Cloud Tasksキュー名 | `anpi-call-queue` |
+| `IMMEDIATE_CALL_TOLERANCE_MINUTES` | 即時実行の許容時間（分） | `5` |
 | `LOG_LEVEL` | ログレベル | `INFO` |
 | `DB_HOST` | データベースホスト | - |
 | `DB_USER` | データベースユーザー | `default` |

@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 """
 安否確認呼び出しスケジューラー - Cloud Run Job
-Cloud Run Jobとしてバッチ処理を実行し、Cloud Tasksを使って将来の安否確認呼び出しをスケジュール
+データベースの設定に基づいて現在時刻に実行すべき安否確認呼び出しを即座に実行する
 """
 
 import os
 import sys
 import logging
-import time as time_module
 from datetime import datetime, timedelta, time
 import json
 from google.cloud import tasks_v2
-from google.protobuf import timestamp_pb2
 import mysql.connector
 from mysql.connector import Error
 
@@ -39,9 +37,18 @@ def setup_logging():
 
 logger = setup_logging()
 
-def create_cloud_task(project_id, location, queue_name, schedule_time, target_url, task_name=None, schedule=None):
-    """Cloud Tasksにタスクを作成する"""
-    logger.info(f"Cloud Tasksにタスクを作成中: {task_name or 'unnamed-task'}")
+def create_cloud_task(project_id, location, queue_name, target_url, task_name=None, user_info=None):
+    """Cloud Tasksに即時実行タスクを作成する
+    
+    Args:
+        project_id: Google Cloud Project ID
+        location: Cloud Tasks location
+        queue_name: Cloud Tasks queue name
+        target_url: タスク実行先URL
+        task_name: タスク名（オプション）
+        user_info: ユーザー情報（オプション）
+    """
+    logger.info(f"Cloud Tasksに即時実行タスクを作成中: {task_name or 'unnamed-task'}")
     
     # Cloud Tasksクライアントを初期化
     client = tasks_v2.CloudTasksClient()
@@ -50,6 +57,14 @@ def create_cloud_task(project_id, location, queue_name, schedule_time, target_ur
     parent = client.queue_path(project_id, location, queue_name)
     
     # タスクの設定
+    task_payload = {
+        'message': 'Immediate anpi call task',
+        'timestamp': datetime.now().isoformat(),
+        'task_name': task_name or 'unnamed-task',
+        'user_info': user_info or {},
+        'execution_type': '即時実行'
+    }
+    
     task = {
         'http_request': {
             'http_method': tasks_v2.HttpMethod.POST,
@@ -57,32 +72,21 @@ def create_cloud_task(project_id, location, queue_name, schedule_time, target_ur
             'headers': {
                 'Content-Type': 'application/json'
             },
-            'body': json.dumps({
-                'message': 'Scheduled anpi call task',
-                'timestamp': datetime.now().isoformat(),
-                'task_name': task_name or 'unnamed-task',
-                'user_info': schedule.get('user_info', {}) if schedule else {}
-            }).encode()
+            'body': json.dumps(task_payload).encode()
         }
     }
-    
-    # 実行時刻を設定（Unix timestamp）
-    if schedule_time:
-        timestamp = timestamp_pb2.Timestamp()
-        timestamp.FromDatetime(schedule_time)
-        task['schedule_time'] = timestamp
     
     # タスク名を設定（オプション）
     if task_name:
         task['name'] = f"{parent}/tasks/{task_name}"
     
     try:
-        # タスクを作成
+        # タスクを作成（即時実行）
         response = client.create_task(parent=parent, task=task)
-        logger.info(f"タスクが正常に作成されました: {response.name}")
+        logger.info(f"即時実行タスクが正常に作成されました: {response.name}")
         return response
     except Exception as e:
-        logger.error(f"タスク作成でエラーが発生しました: {str(e)}")
+        logger.error(f"即時実行タスク作成でエラーが発生しました: {str(e)}")
         raise
 
 def get_db_connection():
@@ -158,8 +162,19 @@ def get_users_from_db():
             cursor.close()
             connection.close()
 
-def calculate_next_call_datetime(call_weekday, call_time):
-    """次回の安否確認実行日時を計算する"""
+
+
+def should_call_now(call_weekday, call_time, tolerance_minutes=5):
+    """現在時刻に基づいて即座に電話をかけるべきかどうかを判定する
+    
+    Args:
+        call_weekday: 指定曜日 ('mon', 'tue', etc.)
+        call_time: 指定時刻 (time object or timedelta)
+        tolerance_minutes: 許容時間（分）。指定時刻の前後この時間内なら実行対象
+    
+    Returns:
+        bool: 今すぐ電話をかけるべきならTrue
+    """
     # 曜日のマッピング
     weekday_map = {
         'sun': 6, 'mon': 0, 'tue': 1, 'wed': 2,
@@ -174,124 +189,127 @@ def calculate_next_call_datetime(call_weekday, call_time):
         seconds = total_seconds % 60
         call_time = time(hours, minutes, seconds)
     
-    target_weekday = weekday_map[call_weekday]
     current_datetime = datetime.now()
     current_weekday = current_datetime.weekday()
+    current_time = current_datetime.time()
     
-    # 今日からの日数を計算
-    days_until_target = (target_weekday - current_weekday) % 7
+    target_weekday = weekday_map.get(call_weekday)
+    if target_weekday is None:
+        logger.warning(f"不正な曜日指定: {call_weekday}")
+        return False
     
-    # 今日が指定曜日で、かつ指定時刻がまだ過ぎていない場合は今日実行
-    if days_until_target == 0:
-        target_time = datetime.combine(current_datetime.date(), call_time)
-        if target_time > current_datetime:
-            return target_time
-        else:
-            # 今日の時刻は過ぎているので来週の同じ曜日
-            days_until_target = 7
+    # 今日が指定曜日でない場合は即時実行しない
+    if current_weekday != target_weekday:
+        logger.debug(f"今日({current_weekday})は指定曜日({target_weekday})ではありません")
+        return False
     
-    # 指定曜日まで0日の場合は来週
-    if days_until_target == 0:
-        days_until_target = 7
+    # 指定時刻をdatetimeに変換
+    target_datetime = datetime.combine(current_datetime.date(), call_time)
     
-    target_date = current_datetime.date() + timedelta(days=days_until_target)
-    return datetime.combine(target_date, call_time)
+    # 現在時刻と指定時刻の差分を計算（秒単位）
+    time_diff_seconds = (current_datetime - target_datetime).total_seconds()
+    time_diff_minutes = time_diff_seconds / 60
+    
+    logger.debug(f"時刻差分: {time_diff_minutes:.2f}分 (現在: {current_datetime.time()}, 指定: {call_time})")
+    
+    # 許容時間内で実行対象かチェック
+    # 指定時刻の tolerance_minutes 分前から tolerance_minutes 分後まで
+    if -tolerance_minutes <= time_diff_minutes <= tolerance_minutes:
+        logger.debug(f"許容時間内({tolerance_minutes}分): 即時実行対象")
+        return True
+    
+    logger.debug(f"許容時間外: 即時実行対象外")
+    return False
 
-def get_user_schedules():
-    """ユーザーの安否確認スケジュールを取得する"""
-    logger.info("ユーザーの安否確認スケジュールを生成中...")
+def get_immediate_call_users():
+    """現在時刻に基づいて即座に電話をかけるべきユーザーを取得する"""
+    logger.info("即時実行対象ユーザーを確認中...")
     
-    # データベースからユーザー情報を取得（モックは使用しない）
+    # 即時実行の許容時間を環境変数から取得（デフォルト5分）
+    tolerance_minutes = int(os.environ.get('IMMEDIATE_CALL_TOLERANCE_MINUTES', '5'))
+    logger.info(f"即時実行許容時間: {tolerance_minutes}分")
+    
+    # データベースからユーザー情報を取得
     users = get_users_from_db()
-    logger.info(f"データベースからユーザー情報を取得しました: {len(users)}件")
-    
-    if not users:
-        logger.warning("取得されたユーザーが0件です")
-        return []
-    
-    schedules = []
+    immediate_users = []
     
     for user in users:
         try:
-            next_call_datetime = calculate_next_call_datetime(
-                user['call_weekday'], 
-                user['call_time']
-            )
-            
-            # 安否確認呼び出しのターゲットURL（実際のTwilioサービスのエンドポイント）
-            target_url = os.environ.get('ANPI_CALL_URL', 'https://asia-northeast1-speech-assistant-openai-894704565810.asia-northeast1.run.app/webhook')
-            
-            schedule = {
-                'id': user['user_id'],
-                'name': f"anpi-call-{user['user_id'][:8]}",
-                'schedule_time': next_call_datetime,
-                'target_url': target_url,
-                'user_info': {
-                    'user_id': user['user_id'],
-                    'name': f"{user['last_name']} {user['first_name']}",
-                    'phone_number': user['phone_number']
-                }
-            }
-            schedules.append(schedule)
-            
-            logger.debug(f"スケジュール生成: {user['last_name']} {user['first_name']} - {next_call_datetime}")
-            
+            if should_call_now(user['call_weekday'], user['call_time'], tolerance_minutes):
+                immediate_users.append(user)
+                logger.info(f"即時実行対象: {user['last_name']} {user['first_name']} (曜日: {user['call_weekday']}, 時刻: {user['call_time']})")
         except Exception as e:
-            logger.error(f"ユーザー {user['user_id']} のスケジュール生成エラー: {e}")
+            logger.error(f"ユーザー {user['user_id']} の即時実行判定エラー: {e}")
             continue
     
-    logger.info(f"生成したスケジュール数: {len(schedules)}")
-    return schedules
+    logger.info(f"即時実行対象ユーザー数: {len(immediate_users)}")
+    return immediate_users
 
-def process_safety_check_schedules():
-    """安否確認の予定を処理してCloud Tasksに登録"""
-    logger.info("安否確認スケジュールの処理を開始")
+def create_immediate_tasks():
+    """即時実行すべきユーザーのタスクを作成する"""
+    logger.info("即時実行タスクの作成を開始")
     
     # 環境変数から設定を取得
     project_id = os.environ.get('GOOGLE_CLOUD_PROJECT', 'unknown')
     location = os.environ.get('CLOUD_TASKS_LOCATION', 'asia-northeast1')
     queue_name = os.environ.get('CLOUD_TASKS_QUEUE', 'anpi-call-queue')
     
-    logger.info(f"Cloud Tasks設定 - プロジェクト: {project_id}, 場所: {location}, キュー: {queue_name}")
+    # 即時実行対象ユーザーを取得
+    immediate_users = get_immediate_call_users()
     
-    # DBからユーザーの安否確認スケジュールを取得
-    schedules = get_user_schedules()
+    if not immediate_users:
+        logger.info("即時実行対象のユーザーはいません")
+        return []
     
     created_tasks = []
-    for schedule in schedules:
+    current_time = datetime.now()
+    
+    for user in immediate_users:
         try:
-            logger.info(f"予定を処理中: {schedule['name']} (実行予定: {schedule['schedule_time']})")
+            # 安否確認呼び出しのターゲットURL
+            target_url = os.environ.get('ANPI_CALL_URL', 'https://asia-northeast1-speech-assistant-openai-894704565810.asia-northeast1.run.app/webhook')
             
-            # Cloud Tasksにタスクを作成
-            task_name = f"{schedule['name']}-{int(schedule['schedule_time'].timestamp())}"
+            # 即時実行タスクの名前（タイムスタンプ付き）
+            task_name = f"anpi-call-immediate-{user['user_id'][:8]}-{int(current_time.timestamp())}"
+            
+            # ユーザー情報の作成
+            user_info = {
+                'user_id': user['user_id'],
+                'name': f"{user['last_name']} {user['first_name']}",
+                'phone_number': user['phone_number']
+            }
+            
+            logger.info(f"即時タスク作成中: {user['last_name']} {user['first_name']}")
+            
+            # Cloud Tasksにタスクを作成（即時実行）
             response = create_cloud_task(
                 project_id=project_id,
                 location=location,
                 queue_name=queue_name,
-                schedule_time=schedule['schedule_time'],
-                target_url=schedule['target_url'],
+                target_url=target_url,
                 task_name=task_name,
-                schedule=schedule
+                user_info=user_info
             )
             
             created_tasks.append({
-                'schedule_id': schedule['id'],
+                'user_id': user['user_id'],
                 'task_name': response.name,
-                'schedule_time': schedule['schedule_time']
+                'execution_time': current_time,
+                'user_name': f"{user['last_name']} {user['first_name']}"
             })
             
-            logger.info(f"タスク登録完了: {schedule['name']}")
+            logger.info(f"即時タスク作成完了: {task_name}")
             
         except Exception as e:
-            logger.error(f"スケジュール処理エラー (ID: {schedule['id']}): {str(e)}")
+            logger.error(f"即時タスク作成エラー (ユーザーID: {user['user_id']}): {str(e)}")
             continue
     
-    logger.info(f"Cloud Tasksタスク登録完了: {len(created_tasks)}件")
+    logger.info(f"即時実行タスク作成完了: {len(created_tasks)}件")
     return created_tasks
 
 def main():
     """メイン処理"""
-    logger.info("=== 安否確認呼び出しスケジューラー バッチ処理開始 ===")
+    logger.info("=== 安否確認呼び出しスケジューラー 即時実行処理開始 ===")
     
     # 環境変数の確認
     project_id = os.environ.get('GOOGLE_CLOUD_PROJECT', 'unknown')
@@ -308,33 +326,26 @@ def main():
     current_time = datetime.now().isoformat()
     logger.info(f"実行時刻: {current_time}")
     
-    # バッチ処理のシミュレーション
-    logger.info("バッチ処理を実行中...")
-    logger.debug("開発環境モードで実行中")
-    
-    # Cloud Tasksを使った安否確認スケジュール処理
+    # 即時実行処理
+    logger.info("=== 即時実行対象者の処理を開始 ===")
+    immediate_tasks_count = 0
     try:
-        created_tasks = process_safety_check_schedules()
-        logger.info(f"安否確認スケジュール処理完了: {len(created_tasks)}件のタスクを登録")
+        immediate_tasks = create_immediate_tasks()
+        immediate_tasks_count = len(immediate_tasks)
+        logger.info(f"即時実行対象者処理完了: {immediate_tasks_count}件のタスクを作成")
         
-        # 作成されたタスクの詳細をログ出力
-        for task in created_tasks:
-            logger.debug(f"登録タスク: {task}")
+        # 即時実行タスクの詳細をログ出力
+        for task in immediate_tasks:
+            logger.info(f"作成タスク: {task}")
             
     except Exception as e:
-        logger.error(f"安否確認スケジュール処理でエラーが発生: {str(e)}")
+        logger.error(f"即時実行対象者処理でエラーが発生: {str(e)}")
         return 1
     
-    # 処理のシミュレーション（3回のステップ）
-    logger.info("追加のバッチ処理を実行中...")
-    for i in range(3):
-        logger.info(f"処理中... {i+1}/3")
-        logger.debug(f"ステップ {i+1} の詳細処理を実行")
-        time_module.sleep(1)
-    
-    # 成功メッセージ
-    logger.info("バッチ処理が正常に完了しました")
-    logger.info("=== 安否確認呼び出しスケジューラー バッチ処理終了 ===")
+    # 処理完了メッセージ
+    logger.info("=== 即時実行処理が正常に完了しました ===")
+    logger.info(f"作成タスク数: {immediate_tasks_count}件")
+    logger.info("=== 安否確認呼び出しスケジューラー 即時実行処理終了 ===")
     
     return 0
 

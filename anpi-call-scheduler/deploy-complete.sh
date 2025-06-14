@@ -1,9 +1,9 @@
 #!/bin/bash
-# 統合デプロイメントスクリプト - anpi-call-scheduler
+# 統合デプロイメントスクリプト - anpi-call-scheduler（即時実行専用）
 # このスクリプトは以下の全工程を自動化します：
 # 1. インフラストラクチャのセットアップ
-# 2. Cloud Run Jobのデプロイ
-# 3. Cloud Schedulerの設定
+# 2. Cloud Run Jobのデプロイ（即時実行専用）
+# 3. Cloud Schedulerの設定（毎分実行で即時対応）
 # 4. 動作確認
 
 set -e
@@ -20,7 +20,7 @@ PROJECT_ID=$(gcloud config get-value project)
 REGION="${REGION:-asia-northeast1}"
 JOB_NAME="${JOB_NAME:-anpi-call-create-task-job}"
 SCHEDULER_NAME="${SCHEDULER_NAME:-anpi-call-scheduler-job}"
-SCHEDULE="${SCHEDULE:-0 * * * *}"
+SCHEDULE="${SCHEDULE:-*/1 * * * *}"  # 毎分実行（即時実行対応）
 TIMEZONE="${TIMEZONE:-Asia/Tokyo}"
 SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-894704565810-compute@developer.gserviceaccount.com}"
 
@@ -191,6 +191,13 @@ deploy_application() {
 
     # 共通関数の読み込み
     source "./cloud-scheduler/scheduler-functions.sh"
+
+    echo -e "${YELLOW}📅 Cloud Schedulerを作成中...${NC}"
+    if create_cloud_scheduler "$PROJECT_ID" "$REGION" "$SCHEDULER_NAME" "$SCHEDULE" "$TIMEZONE" "$JOB_NAME" "$SERVICE_ACCOUNT"; then
+        echo -e "   ✓ Cloud Schedulerを作成しました (毎分実行で即時対応)"
+    else
+        echo -e "   ⚠️ Cloud Schedulerは既に存在するか、作成をスキップしました"
+    fi
 
 }
 

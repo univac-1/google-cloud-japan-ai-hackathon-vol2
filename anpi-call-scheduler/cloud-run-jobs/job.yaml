@@ -34,6 +34,8 @@ spec:
               value: "${CLOUD_TASKS_QUEUE:-anpi-call-queue}"
             - name: ANPI_CALL_URL
               value: "${ANPI_CALL_URL:-https://httpbin.org/post}"
+            - name: IMMEDIATE_CALL_TOLERANCE_MINUTES
+              value: "${IMMEDIATE_CALL_TOLERANCE_MINUTES:-5}"
             - name: DB_HOST
               value: "/cloudsql/${GOOGLE_CLOUD_PROJECT:-univac-aiagent}:asia-northeast1:cloudsql-01"
             - name: DB_PORT

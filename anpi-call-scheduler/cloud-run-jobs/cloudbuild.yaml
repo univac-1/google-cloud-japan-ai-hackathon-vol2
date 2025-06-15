@@ -1,0 +1,51 @@
+# Cloud Run Jobs 用 Cloud Build 設定
+# 安否確認呼び出しスケジューラー用のバッチジョブデプロイ
+
+steps:
+  # ステップ1: Docker イメージのビルド
+  - name: 'gcr.io/cloud-builders/docker'
+    args: 
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/anpi-call-scheduler:$BUILD_ID'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/anpi-call-scheduler:latest'
+      - '.'
+
+  # ステップ2: Container Registry への Push
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/anpi-call-scheduler:$BUILD_ID'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/anpi-call-scheduler:latest'
+
+  # ステップ3: Cloud Run Job のデプロイ
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'jobs'
+      - 'replace'
+      - 'job.yaml'
+      - '--region=${_REGION}'
+      - '--quiet'
+
+# 置換変数のデフォルト値
+substitutions:
+  _REGION: 'asia-northeast1'
+
+# イメージをプッシュ
+images:
+  - 'gcr.io/$PROJECT_ID/anpi-call-scheduler:$BUILD_ID'
+  - 'gcr.io/$PROJECT_ID/anpi-call-scheduler:latest'
+
+# タイムアウト設定
+timeout: '1200s'
+
+# ログオプション
+options:
+  logging: CLOUD_LOGGING_ONLY

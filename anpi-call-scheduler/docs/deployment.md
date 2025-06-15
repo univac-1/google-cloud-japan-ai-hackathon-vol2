@@ -15,16 +15,17 @@
 
 ```bash
 # 一括デプロイ実行
-./deploy.sh
+./deploy-complete.sh
 ```
 
 このスクリプトは以下の処理を自動実行します：
 
-1. 設定ファイル（.env）の読み込み
-2. 必要なAPIの有効化確認
-3. Cloud Build権限の設定
+1. 必要なAPIの有効化確認
+2. Cloud Build権限の設定
+3. Cloud Tasksキューの作成
 4. Cloud Buildによるイメージビルド・デプロイ
 5. Cloud Schedulerの設定
+6. 動作確認テスト
 
 ### 2. 設定カスタマイズデプロイ
 
@@ -32,7 +33,7 @@
 
 ```bash
 # カスタム設定でデプロイ
-ENVIRONMENT=production LOG_LEVEL=info ./deploy.sh
+ENVIRONMENT=production LOG_LEVEL=info ./deploy-complete.sh
 ```
 
 ## 手動デプロイ
@@ -62,6 +63,14 @@ gcloud run jobs deploy anpi-call-scheduler-dev \
 ```
 
 ### 3. Cloud Schedulerの設定
+
+推奨方法：
+```bash
+# 共通関数を使用した統一的な設定
+./cloud-scheduler/deploy-scheduler.sh
+```
+
+手動設定（参考）：
 
 ```bash
 # 既存のスケジューラーを削除（存在する場合）

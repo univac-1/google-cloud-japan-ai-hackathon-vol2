@@ -24,9 +24,7 @@ SCHEDULE="${SCHEDULE:-*/15 * * * *}"  # 15分間隔実行（即時実行対応�
 TIMEZONE="${TIMEZONE:-Asia/Tokyo}"
 SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-894704565810-compute@developer.gserviceaccount.com}"
 
-# Cloud Tasks設定
-CLOUD_TASKS_QUEUE="${CLOUD_TASKS_QUEUE:-anpi-call-queue}"
-CLOUD_TASKS_LOCATION="${CLOUD_TASKS_LOCATION:-$REGION}"
+
 
 # 環境設定
 ENVIRONMENT="${ENVIRONMENT:-development}"
@@ -96,7 +94,6 @@ setup_infrastructure() {
         "run.googleapis.com"
         "containerregistry.googleapis.com"
         "cloudscheduler.googleapis.com"
-        "cloudtasks.googleapis.com"
         "sqladmin.googleapis.com"
     )
 
@@ -126,20 +123,6 @@ setup_infrastructure() {
         --quiet >/dev/null 2>&1 || echo -e "   ⚠️ Service Account User権限は既に設定済みです"
 
     echo -e "   ✓ Cloud Build権限設定完了"
-
-    # Cloud Tasksキューの確認・作成
-    echo -e "${YELLOW}📝 Cloud Tasksキューの確認・作成中...${NC}"
-    
-    # Cloud Tasks共通関数の読み込み
-    source "./cloud-tasks/tasks-functions.sh"
-
-    # Cloud Tasksキューの作成（詳細設定付き）
-    if create_cloud_tasks_queue "$PROJECT_ID" "$CLOUD_TASKS_LOCATION" "$CLOUD_TASKS_QUEUE" "100" "3600s" "3" "10s" "300s"; then
-        echo -e "   ✓ Cloud Tasksキューのセットアップが完了しました"
-    else
-        echo -e "   ❌ Cloud Tasksキューのセットアップに失敗しました"
-        return 1
-    fi
 }
 
 # アプリケーションデプロイ関数
@@ -154,8 +137,6 @@ deploy_application() {
     export LOG_LEVEL="$LOG_LEVEL"
     export JOB_NAME="$JOB_NAME"
     export REGION="$REGION"
-    export CLOUD_TASKS_LOCATION="$CLOUD_TASKS_LOCATION"
-    export CLOUD_TASKS_QUEUE="$CLOUD_TASKS_QUEUE"
 
     if ./cloud-run-jobs/deploy-job.sh build; then
         echo -e "   ✓ Cloud Run Jobsをデプロイしました"
@@ -250,7 +231,6 @@ show_deployment_summary() {
     echo -e "${BLUE}📊 デプロイメントサマリー:${NC}"
     echo -e "   ✅ Cloud Run Job: ${GREEN}$JOB_NAME${NC} (デプロイ済み)"
     echo -e "   ✅ Cloud Scheduler: ${GREEN}$SCHEDULER_NAME${NC} ($SCHEDULE)"
-    echo -e "   ✅ Cloud Tasks Queue: ${GREEN}$CLOUD_TASKS_QUEUE${NC}"
     echo -e "   ✅ 環境: ${GREEN}$ENVIRONMENT${NC}"
     echo -e "   ✅ リージョン: ${GREEN}$REGION${NC}"
     echo ""
@@ -265,9 +245,6 @@ show_deployment_summary() {
     echo ""
     echo -e "${YELLOW}# 実行履歴確認:${NC}"
     echo "gcloud run jobs executions list --job=$JOB_NAME --region=$REGION --limit=5"
-    echo ""
-    echo -e "${YELLOW}# Cloud Tasksキュー確認:${NC}"
-    echo "gcloud tasks list --queue=$CLOUD_TASKS_QUEUE --location=$CLOUD_TASKS_LOCATION"
     echo ""
     echo -e "${YELLOW}# ログ確認:${NC}"
     echo "gcloud logging read \"resource.type=cloud_run_job AND resource.labels.job_name=$JOB_NAME\" --limit=20 --format=\"table(timestamp,severity,textPayload)\""

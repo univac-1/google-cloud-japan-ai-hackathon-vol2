@@ -9,7 +9,8 @@ import sys
 import logging
 from datetime import datetime, timedelta, time
 import json
-from google.cloud import tasks_v2
+import requests
+import subprocess
 import mysql.connector
 from mysql.connector import Error
 
@@ -37,61 +38,62 @@ def setup_logging():
 
 logger = setup_logging()
 
-def create_cloud_task(project_id, location, queue_name, target_url, task_name=None, user_info=None):
-    """Cloud Tasksに即時実行タスクを作成する
+def get_auth_token():
+    """Google Cloud認証トークンを取得する"""
+    try:
+        result = subprocess.run(
+            ['gcloud', 'auth', 'print-identity-token'],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        logger.error(f"認証トークンの取得に失敗しました: {e}")
+        raise
+
+def call_task_api(phone_number, delay_seconds=0, queue_name="my-queue"):
+    """タスクAPIを呼び出して安否確認タスクを作成する
     
     Args:
-        project_id: Google Cloud Project ID
-        location: Cloud Tasks location
-        queue_name: Cloud Tasks queue name
-        target_url: タスク実行先URL
-        task_name: タスク名（オプション）
-        user_info: ユーザー情報（オプション）
+        phone_number: 電話番号
+        delay_seconds: 遅延時間（秒）
+        queue_name: キュー名
+    
+    Returns:
+        dict: APIレスポンス
     """
-    logger.info(f"Cloud Tasksに即時実行タスクを作成中: {task_name or 'unnamed-task'}")
+    logger.info(f"タスクAPI呼び出し中: {phone_number} (キュー: {queue_name})")
     
-    # Cloud Tasksクライアントを初期化
-    client = tasks_v2.CloudTasksClient()
+    # APIエンドポイント
+    api_url = "https://taskhandler-hkzk5xnm7q-uc.a.run.app/enqueue-task"
     
-    # タスクが既に存在するかチェック
-    if task_name and check_task_exists(client, project_id, location, queue_name, task_name):
-        logger.warning(f"タスクが既に存在するためスキップします: {task_name}")
-        return None
+    # 認証トークンを取得
+    auth_token = get_auth_token()
     
-    # キューのパスを作成
-    parent = client.queue_path(project_id, location, queue_name)
-    
-    # タスクの設定
-    task_payload = {
-        'message': 'Immediate anpi call task',
-        'timestamp': datetime.now().isoformat(),
-        'task_name': task_name or 'unnamed-task',
-        'user_info': user_info or {},
-        'execution_type': '即時実行'
+    # リクエストヘッダー
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {auth_token}'
     }
     
-    task = {
-        'http_request': {
-            'http_method': tasks_v2.HttpMethod.POST,
-            'url': target_url,
-            'headers': {
-                'Content-Type': 'application/json'
-            },
-            'body': json.dumps(task_payload).encode()
-        }
+    # リクエストボディ
+    payload = {
+        'recipient_phone_number': phone_number,
+        'delay_seconds': delay_seconds,
+        'queue_name': queue_name
     }
-    
-    # タスク名を設定（オプション）
-    if task_name:
-        task['name'] = f"{parent}/tasks/{task_name}"
     
     try:
-        # タスクを作成（即時実行）
-        response = client.create_task(parent=parent, task=task)
-        logger.info(f"即時実行タスクが正常に作成されました: {response.name}")
-        return response
-    except Exception as e:
-        logger.error(f"即時実行タスク作成でエラーが発生しました: {str(e)}")
+        # APIリクエストを送信
+        response = requests.post(api_url, headers=headers, json=payload, timeout=30)
+        response.raise_for_status()
+        
+        logger.info(f"タスクAPI呼び出し成功: {phone_number} (キュー: {queue_name})")
+        return response.json()
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"タスクAPI呼び出しエラー ({phone_number}): {str(e)}")
         raise
 
 def get_db_connection():
@@ -261,11 +263,6 @@ def create_immediate_tasks():
     """即時実行すべきユーザーのタスクを作成する"""
     logger.info("即時実行タスクの作成を開始")
     
-    # 環境変数から設定を取得
-    project_id = os.environ.get('GOOGLE_CLOUD_PROJECT', 'unknown')
-    location = os.environ.get('CLOUD_TASKS_LOCATION', 'asia-northeast1')
-    queue_name = os.environ.get('CLOUD_TASKS_QUEUE', 'anpi-call-queue')
-    
     # 即時実行対象ユーザーを取得
     immediate_users = get_immediate_call_users()
     
@@ -278,39 +275,35 @@ def create_immediate_tasks():
     
     for user in immediate_users:
         try:
-            # 安否確認呼び出しのターゲットURL
-            target_url = os.environ.get('ANPI_CALL_URL', 'https://asia-northeast1-speech-assistant-openai-894704565810.asia-northeast1.run.app/webhook')
+            # 電話番号の形式を確認・調整
+            phone_number = user['phone_number']
             
-            # 即時実行タスクの名前（タイムスタンプ付き）
-            task_name = f"anpi-call-immediate-{user['user_id'][:8]}-{int(current_time.timestamp())}"
+            # 日本の電話番号形式に調整（+81で始まる形式）
+            if phone_number.startswith('0'):
+                # 0で始まる場合は+81に置き換え
+                phone_number = '+81' + phone_number[1:]
+            elif not phone_number.startswith('+'):
+                # +がない場合は+81を追加
+                phone_number = '+81' + phone_number
             
-            # ユーザー情報の作成
-            user_info = {
-                'user_id': user['user_id'],
-                'name': f"{user['last_name']} {user['first_name']}",
-                'phone_number': user['phone_number']
-            }
+            logger.info(f"即時タスク作成中: {user['last_name']} {user['first_name']} ({phone_number})")
             
-            logger.info(f"即時タスク作成中: {user['last_name']} {user['first_name']}")
-            
-            # Cloud Tasksにタスクを作成（即時実行）
-            response = create_cloud_task(
-                project_id=project_id,
-                location=location,
-                queue_name=queue_name,
-                target_url=target_url,
-                task_name=task_name,
-                user_info=user_info
+            # タスクAPIを呼び出し（即時実行なのでdelay_seconds=0）
+            response = call_task_api(
+                phone_number=phone_number,
+                delay_seconds=0,
+                queue_name="my-queue"
             )
             
             created_tasks.append({
                 'user_id': user['user_id'],
-                'task_name': response.name,
+                'phone_number': phone_number,
                 'execution_time': current_time,
-                'user_name': f"{user['last_name']} {user['first_name']}"
+                'user_name': f"{user['last_name']} {user['first_name']}",
+                'api_response': response
             })
             
-            logger.info(f"即時タスク作成完了: {task_name}")
+            logger.info(f"即時タスク作成完了: {user['last_name']} {user['first_name']} -> {phone_number}")
             
         except Exception as e:
             logger.error(f"即時タスク作成エラー (ユーザーID: {user['user_id']}): {str(e)}")

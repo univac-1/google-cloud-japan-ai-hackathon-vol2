@@ -50,3 +50,5 @@ spec:
               value: "true"
             - name: IS_CLOUD_RUN_JOB
               value: "true"
+            - name: TZ
+              value: "Asia/Tokyo"

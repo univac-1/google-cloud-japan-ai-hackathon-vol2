@@ -14,7 +14,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # アプリケーションのソースコードをコピー
-COPY main.py .
+COPY app/ .
 
 # ポート設定（Cloud Runは動的にポートを割り当てるため、環境変数を使用）
 EXPOSE 8080

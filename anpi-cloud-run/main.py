@@ -26,7 +26,7 @@ Submit a task.
 gcloud tasks create-http-task my-task-1 \
     --queue=my-queue \
     --location=us-central1 \
-    --url=https://taskhandler-hsr7mrfkca-uc.a.run.app/task-handler \
+    --url=https://taskhandler-hkzk5xnm7q-uc.a.run.app/task-handler \
     --method=POST \
     --header=Content-Type:application/json \
     --body-content='{"message": "Direct from gcloud", "recipient_phone_number": "+819081729874"}'
@@ -35,7 +35,7 @@ gcloud tasks create-http-task my-task-1 \
 or 
 
 ```bash
-curl -X POST "https://taskhandler-hsr7mrfkca-uc.a.run.app/enqueue-task" \
+curl -X POST "https://taskhandler-hkzk5xnm7q-uc.a.run.app/enqueue-task" \
      -H "Content-Type: application/json" \
      -d '{
        "message": "Hello from Cloud Tasks!",
@@ -153,7 +153,12 @@ async def enqueue_task(task_request: TaskRequest):
         http_request = tasks_v2.HttpRequest(
             http_method=tasks_v2.HttpMethod.POST,
             url=task_url,
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+            },
+            oidc_token=tasks_v2.OidcToken(
+                service_account_email="cloud-tasks-invoker@univac-aiagent.iam.gserviceaccount.com",
+            ),
             body=json_payload,
         )
 

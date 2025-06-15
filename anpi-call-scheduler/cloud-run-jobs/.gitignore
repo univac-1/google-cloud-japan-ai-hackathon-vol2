@@ -1,0 +1,4 @@
+# Cloud Run Jobs 固有のファイル
+job-temp.yaml
+*.log
+.env.local

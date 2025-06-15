@@ -1,365 +1,241 @@
 # ANPI Call Scheduler
 
-安否確認コール システムのスケジューラー。データベースからユーザーの通話スケジュール設定を取得し、Cloud Tasks にタスクを登録します。
+安否確認コール システムのスケジューラー。データベースからユーザーの通話設定を取得し、現在時刻に基づいて即座に実行すべき安否確認を判定してCloud Tasksにタスクを作成します。
 
-## 機能
+## プロジェクト概要
+
+### 機能
 
 - MySQL（Cloud SQL）データベースからユーザーの通話設定を取得
-- 曜日と時間に基づいてタスクの実行日時を計算
-- Google Cloud Tasks にタスクを登録
-- Cloud Run Jobs としてスケジュール実行
-- Cloud Scheduler による定期実行（毎時0分）
+- 現在時刻と設定された曜日・時間を比較して即時実行判定
+- Google Cloud Tasks に即時実行タスクを作成
+- Cloud Run Jobs として定期実行
+- Cloud Scheduler による定期実行（15分間隔または設定間隔）
 
-## 🚀 クイックデプロイ
+### システム構成
 
-### 完全自動デプロイ（推奨）
+- **Cloud Scheduler**: 定期的に Cloud Run Job をトリガー（推奨：15分間隔実行）
+- **Cloud Run Job**: Python バッチ処理で即時実行判定・タスク作成
+- **Cloud SQL**: ユーザー情報と通話設定を格納
+- **Cloud Tasks**: 個別の安否確認タスクをキューイング
+- **外部連携**: Twilio サービスによる音声通話実行
 
-```bash
-# 全設定を自動化
-./deploy-complete.sh
-```
+### 処理の流れ
 
-このスクリプトは以下をすべて自動実行します：
-1. 必要なAPIの有効化
-2. Cloud Tasksキューの作成
-3. Docker イメージのビルド・プッシュ
-4. Cloud Run Job のデプロイ
-5. サービスアカウント権限の設定
-6. Cloud Scheduler の作成・設定
-7. 動作確認テスト
+1. **現在時刻チェック**: データベースから全ユーザーの通話設定を取得
+2. **即時実行判定**: 現在時刻と各ユーザーの設定（曜日・時刻）を比較
+3. **許容時間内確認**: 指定時刻の前後5分以内（設定可能）かを判定
+4. **即時タスク作成**: 条件に一致するユーザーのCloud Tasksタスクを即座に作成
+5. **通話実行**: 作成されたタスクによりTwilioサービスがWebhook経由で通話実行
 
-### Cloud Scheduler のみ設定
+**即時実行専用設計**: このアプリケーションは将来のスケジューリング機能を持たず、現在時刻に基づく即時実行のみを行います。定期的な実行により適切なタイミングでの安否確認を実現します。
 
-```bash
-# Cloud Scheduler のみ作成・設定
-./setup-scheduler.sh
-```
-
-## 📁 スクリプトファイル
-
-| ファイル名 | 用途 | 説明 |
-|-----------|------|------|
-| `deploy-complete.sh` | 完全デプロイ | 全工程を自動化する統合スクリプト |
-| `setup-scheduler.sh` | Scheduler設定 | Cloud Scheduler の作成・管理専用 |
-| `deploy-application.sh` | アプリデプロイ | 既存のCloud Build用スクリプト |
-| `setup-infrastructure.sh` | インフラ設定 | インフラストラクチャのみ設定 |
-
-## 🔧 個別コンポーネント管理
-
-### Cloud Scheduler の管理
-
-```bash
-# スケジューラー状態確認
-gcloud scheduler jobs describe anpi-call-scheduler-job --location=asia-northeast1
-
-# 手動実行
-gcloud scheduler jobs run anpi-call-scheduler-job --location=asia-northeast1
-
-# スケジューラー削除
-gcloud scheduler jobs delete anpi-call-scheduler-job --location=asia-northeast1
-```
-
-### Cloud Run Job の管理
-
-```bash
-# Job手動実行
-gcloud run jobs execute anpi-call-create-task-job --region=asia-northeast1
-
-# 実行履歴確認
-gcloud run jobs executions list --job=anpi-call-create-task-job --region=asia-northeast1 --limit=5
-
-# Job詳細確認
-gcloud run jobs describe anpi-call-create-task-job --region=asia-northeast1
-```
-
-### Cloud Tasks の確認
-
-```bash
-# タスクリスト表示
-gcloud tasks list --queue=anpi-call-queue --location=asia-northeast1
-
-# キュー状態確認
-gcloud tasks queues describe anpi-call-queue --location=asia-northeast1
-```
-
-## 📊 システム構成
-
-```
-[Cloud Scheduler] → [Cloud Run Job] → [Cloud SQL] → [Cloud Tasks]
-      ↓                    ↓               ↓           ↓
-  毎時0分実行         ユーザー情報取得    スケジュール   安否確認通話タスク
-```
-
-### 実行フロー
-
-1. **Cloud Scheduler**: 毎時0分に Cloud Run Job を実行
-2. **Cloud Run Job**: データベースから次週のスケジュールを取得
-3. **Cloud SQL**: ユーザーの通話設定（曜日・時刻）を提供
-4. **Cloud Tasks**: 個別のスケジュールタスクを作成
-5. **Webhook実行**: 指定時刻に安否確認通話を実行
-
-## 📝 設定ファイル
-
-### job.yaml（Cloud Run Job設定）
-
-```yaml
-# Cloud Run Job の完全な設定
-# - 環境変数設定
-# - Cloud SQL接続設定
-# - リソース制限
-# - サービスアカウント設定
-```
-
-### main.py（アプリケーションロジック）
-
-```python
-# 主要機能:
-# - データベース接続（TCP/Unix Socket対応）
-# - ユーザー情報取得
-# - スケジュール計算
-# - Cloud Tasks作成
-```
-
-## 🔐 権限設定
-
-### 必要なサービスアカウント権限
-
-```bash
-# Cloud Run Invoker（Scheduler→Job実行用）
-gcloud projects add-iam-policy-binding univac-aiagent \
-  --member="serviceAccount:894704565810-compute@developer.gserviceaccount.com" \
-  --role="roles/run.invoker"
-
-# Cloud Run Developer（Job管理用）
-gcloud projects add-iam-policy-binding univac-aiagent \
-  --member="serviceAccount:894704565810-compute@developer.gserviceaccount.com" \
-  --role="roles/run.developer"
-
-# Cloud Tasks Enqueuer（タスク作成用）
-gcloud projects add-iam-policy-binding univac-aiagent \
-  --member="serviceAccount:894704565810-compute@developer.gserviceaccount.com" \
-  --role="roles/cloudtasks.enqueuer"
-```
-
-## 開発環境
-
-### VS Code DevContainer を使用する場合（推奨）
-
-1. VS Code で Dev Containers 拡張機能をインストール
-2. このフォルダを VS Code で開く
-3. "Reopen in Container" を選択
-4. 環境変数ファイルを設定：
-   ```bash
-   cp .env.local .env
-   # .env ファイルを編集して実際の値を設定
-   ```
-
-### ローカル環境で直接実行する場合
-
-1. Python 3.11+ をインストール
-2. 開発環境をセットアップ：
-   ```bash
-   ./dev-setup.sh
-   ```
-3. アプリケーションを実行：
-   ```bash
-   python main.py
-   ```
-
-## 環境変数
-
-| 変数名 | 説明 | 例 |
-|--------|------|-----|
-| `GOOGLE_CLOUD_PROJECT` | Google Cloud プロジェクトID | `my-project-123` |
-| `DB_HOST` | データベースホスト | `10.0.0.1` |
-| `DB_PORT` | データベースポート | `5432` |
-| `DB_USER` | データベースユーザー | `postgres` |
-| `DB_NAME` | データベース名 | `anpi_db` |
-| `DB_PASSWORD` | データベースパスワード | `secret123` |
-| `QUEUE_NAME` | Cloud Tasks キュー名 | `anpi-call-queue` |
-| `LOCATION` | Cloud Tasks リージョン | `asia-northeast1` |
+詳細な処理フローは [📋 処理フロー詳細](docs/processing-flow.md) を参照してください。
 
 ## プロジェクト構成
 
 ```
 anpi-call-scheduler/
-├── main.py                        # メインのバッチ処理
-├── Dockerfile                     # Dockerイメージ定義
-├── requirements.txt               # Python依存関係
-├── setup-infrastructure.sh       # インフラセットアップスクリプト
-├── deploy-application.sh          # Cloud Buildデプロイスクリプト
-├── deploy-local.sh               # ローカルDockerビルド & デプロイスクリプト
-├── cloudbuild.yaml               # Cloud Build設定
-├── job.yaml                      # Cloud Run Job設定
-├── .devcontainer/                # 開発環境設定
-│   ├── devcontainer.json         # VS Code devcontainer設定
-│   ├── Dockerfile.dev            # 開発用Dockerfile
-│   └── docker-compose.yml        # ローカル開発用Docker Compose
-├── docs/                         # ドキュメント
-└── README.md                     # このファイル
+├── deploy-complete.sh           # 統合デプロイスクリプト（推奨）
+│
+├── cloud-run-jobs/              # Cloud Run Jobs専用ディレクトリ
+│   ├── main.py                  # バッチ処理アプリケーション
+│   ├── Dockerfile               # Cloud Run Jobs用Dockerイメージ
+│   ├── requirements.txt         # Python依存関係
+│   ├── cloudbuild.yaml          # Cloud Build設定
+│   ├── job.yaml                 # Cloud Run Job設定
+│   ├── deploy-job.sh            # Cloud Run Jobs専用デプロイ
+│   ├── job-functions.sh         # 共通関数ライブラリ
+│   ├── job-config.env           # ジョブ設定
+│   └── README.md                # Cloud Run Jobs使用方法
+│
+├── cloud-scheduler/             # Cloud Scheduler設定
+│   ├── scheduler-functions.sh   # 共通関数ライブラリ
+│   ├── deploy-scheduler.sh      # Cloud Scheduler専用デプロイ
+│   ├── scheduler.yaml           # スケジューラー設定定義
+│   └── README.md                # Cloud Scheduler使用方法
+│
+├── cloud-tasks/                 # Cloud Tasks設定
+│   ├── tasks-functions.sh      # 共通関数ライブラリ
+│   ├── deploy-cloud-tasks.sh   # Cloud Tasks専用デプロイ
+│   ├── tasks-config.yaml       # キュー設定定義
+│   └── README.md               # Cloud Tasks使用方法
+│
+├── scripts/                    # 開発・テスト用ユーティリティ
+│   ├── test_db_connection.py   # データベース接続テスト
+│   ├── add_test_data.py        # テストデータ追加
+│   ├── add_current_time_test_data.py # 現在時刻テストデータ
+│   ├── add_bulk_test_data.py   # 大量テストデータ追加
+│   ├── check_db_schema.py      # スキーマ確認
+│   ├── debug_immediate_execution.py # デバッグ用
+│   ├── cloud-sql-proxy         # Cloud SQL Proxyバイナリ
+│   └── README.md               # スクリプト使用方法
+│
+├── docs/                       # ドキュメント
+│   ├── processing-flow.md      # 処理フロー詳細
+│   ├── setup-guide.md          # セットアップ手順
+│   ├── deployment.md           # デプロイ手順
+│   ├── gcp-resources.md        # GCPリソース仕様
+│   ├── external-systems.md     # 外部システム接続情報
+│   ├── system-architecture.md  # システム構成詳細
+│   └── troubleshooting.md      # トラブルシューティング
+│
+└── README.md                   # このファイル
 ```
 
-## 開発環境セットアップ
+### 主要ファイル
 
-### Option 1: VS Code devcontainer（推奨）
+| ファイル名 | 用途 | 説明 |
+|-----------|------|------|
+| `cloud-run-jobs/main.py` | アプリケーション | バッチ処理のメインロジック |
+| `cloud-run-jobs/deploy-job.sh` | Cloud Run Jobs | ジョブのデプロイ・管理専用スクリプト |
+| `deploy-complete.sh` | 完全デプロイ | 全工程を自動化する統合スクリプト |
+| `cloud-scheduler/deploy-scheduler.sh` | Scheduler設定 | Cloud Scheduler の作成・管理専用 |
+| `cloud-run-jobs/Dockerfile` | コンテナ | Cloud Run Jobs用Dockerイメージ |
+| `cloud-run-jobs/requirements.txt` | 依存関係 | Python パッケージ定義 |
+| `scripts/test_db_connection.py` | 開発・テスト | データベース接続テスト用スクリプト |
 
-1. VS Codeでこのフォルダを開く
-2. 「Reopen in Container」を選択
-3. devcontainerが自動的にセットアップされます
+## 実行方法
 
-### Option 2: ローカルDocker Compose
+### 🚀 クイックスタート（推奨）
+
+完全自動デプロイで全工程を一括実行：
 
 ```bash
-cd .devcontainer
-docker-compose up -d
-docker-compose exec anpi-scheduler bash
+# 完全自動デプロイ（推奨）
+./deploy-complete.sh
+
+# 本番環境での自動デプロイ
+./deploy-complete.sh --production
+
+# インフラストラクチャのみセットアップ
+./deploy-complete.sh --infrastructure-only
+
+# アプリケーションのみデプロイ
+./deploy-complete.sh --deploy-only
+
+# テストをスキップしてデプロイ
+./deploy-complete.sh --skip-test
 ```
 
-## デプロイ手順
+統合デプロイスクリプトは以下をすべて自動実行します：
+1. 必要なAPIの有効化
+2. Cloud Tasksキューの作成
+3. Cloud Run Jobs のビルド・デプロイ
+4. サービスアカウント権限の設定
+5. Cloud Scheduler の作成・設定
+6. 動作確認テスト
 
-### ローカルビルド & デプロイ（推奨 - 高速）
+### 個別実行
+
+#### 1. Cloud Run Jobs のみデプロイ
 
 ```bash
-# 高速デプロイ（ローカルでDockerビルド）
-./deploy-local.sh
+# Cloud Run Jobs 単体デプロイ
+./cloud-run-jobs/deploy-job.sh deploy
+
+# または Cloud Build を使用
+./cloud-run-jobs/deploy-job.sh build
+
+# ジョブの手動実行
+./cloud-run-jobs/deploy-job.sh execute
+
+# ジョブの管理（ログ確認、削除など）
+./cloud-run-jobs/deploy-job.sh logs
+./cloud-run-jobs/deploy-job.sh status
 ```
 
-この方式では：
-- Dockerイメージをローカルでビルド
-- Container Registryにプッシュ
-- Cloud Run Jobをデプロイ
-- Cloud Schedulerを設定
-
-### Cloud Buildデプロイ（従来方式）
+#### 2. Cloud Scheduler のみ設定
 
 ```bash
-# Cloud Buildでのデプロイ（時間がかかる場合あり）
-./deploy-application-cloudbuild.sh
+# Cloud Scheduler のみ作成・設定（推奨）
+./cloud-scheduler/deploy-scheduler.sh
 ```
 
-## 実行手順
+### 動作確認
 
-### 1. 初期設定
+#### 手動実行テスト
+
 ```bash
-gcloud config set project YOUR_PROJECT_ID
-gcloud auth login
-```
-
-### 2. インフラストラクチャセットアップ（初回のみ）
-```bash
-# 必要なAPI、IAM権限、Cloud Tasksキューを作成
-./setup-infrastructure.sh
-```
-
-### 3. アプリケーションデプロイ（開発時に繰り返し実行）
-```bash
-# Cloud Run JobとCloud Schedulerをデプロイ
-./deploy-application.sh
-```
-
-### 4. 手動実行とテスト
-
-#### Cloud Run Jobの手動実行
-```bash
-# Job名: anpi-call-create-task-job
+# Cloud Run Job手動実行
 gcloud run jobs execute anpi-call-create-task-job --region=asia-northeast1
-```
 
-#### Cloud Schedulerの手動実行
-```bash
-# Scheduler名: anpi-call-scheduler-job  
+# Cloud Scheduler手動実行
 gcloud scheduler jobs run anpi-call-scheduler-job --location=asia-northeast1
 ```
 
-#### 実行状況の確認
-```bash
-# 実行履歴の確認
-gcloud run jobs executions list --job=anpi-call-create-task-job --region=asia-northeast1 --limit=5
+#### 実行状況確認
 
-# 実行詳細の確認
-gcloud run jobs executions describe [EXECUTION_NAME] --region=asia-northeast1
-
-# ログの確認
-gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=anpi-call-create-task-job" --limit=20
-```
-
-#### Cloud Tasksの確認
-```bash
-# 作成されたタスクの確認
-gcloud tasks list --queue=anpi-call-queue --location=asia-northeast1
-```
-
-### 5. スケジュール設定
-
-デフォルトでは毎時0分に実行されます（cron: `0 * * * *`）。
-設定を変更する場合は`.env`ファイルの`SCHEDULE`を編集してください。
-
-#### Cloud Scheduler作成時の注意事項
-
-Cloud Run Jobsを実行するSchedulerではOAuth認証を使用してください：
-
-```bash
-# 正しいScheduler作成方法 (OAuth認証)
-gcloud scheduler jobs create http anpi-call-scheduler-job \
-  --location=asia-northeast1 \
-  --schedule="0 * * * *" \
-  --time-zone="Asia/Tokyo" \
-  --uri="https://asia-northeast1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/univac-aiagent/jobs/anpi-call-create-task-job:run" \
-  --http-method=POST \
-  --oauth-service-account-email="894704565810-compute@developer.gserviceaccount.com" \
-  --oauth-token-scope="https://www.googleapis.com/auth/cloud-platform" \
-  --max-retry-attempts=1 \
-  --min-backoff=10s \
-  --max-backoff=60s
-
-# 手動実行テスト
-gcloud scheduler jobs run anpi-call-scheduler-job --location=asia-northeast1
-
-# 実行状況確認
-gcloud scheduler jobs describe anpi-call-scheduler-job --location=asia-northeast1
-```
-
-#### 認証方式について
-
-- ✅ **OAuth Token**: Cloud Run Jobsとの互換性が良い（推奨）
-- ❌ **OIDC Token**: Cloud Run Jobsで認証エラーが発生する可能性
-
-### 6. トラブルシューティング
-
-#### Cloud Schedulerのエラー確認
-```bash
-# Scheduler状況確認
-gcloud scheduler jobs describe anpi-call-scheduler-job --location=asia-northeast1
-
-# エラーがある場合は status.code が表示される
-# code: 16 = UNAUTHENTICATED (認証エラー)
-```
-
-#### Cloud Run Job実行の確認
 ```bash
 # 実行履歴確認
 gcloud run jobs executions list --job=anpi-call-create-task-job --region=asia-northeast1 --limit=5
 
-# Cloud Tasksタスク確認
+# 作成されたタスクの確認
 gcloud tasks list --queue=anpi-call-queue --location=asia-northeast1
 
 # ログ確認
-gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=anpi-call-create-task-job" --limit=10
+gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=anpi-call-create-task-job" --limit=20
 ```
+
+### 管理コマンド
+
+```bash
+# スケジューラー状態確認
+gcloud scheduler jobs describe anpi-call-scheduler-job --location=asia-northeast1
+
+# スケジューラー削除
+gcloud scheduler jobs delete anpi-call-scheduler-job --location=asia-northeast1
+
+# Job詳細確認
+gcloud run jobs describe anpi-call-create-task-job --region=asia-northeast1
+
+# キュー状態確認
+gcloud tasks queues describe anpi-call-queue --location=asia-northeast1
+```
+
+### 開発・テスト用スクリプト
+
+開発・テスト・デバッグ用のスクリプトは `scripts/` フォルダに整理されています：
+
+```bash
+# データベース接続テスト
+python scripts/test_db_connection.py
+
+# 現在時刻に近いテストデータを追加
+python scripts/add_current_time_test_data.py
+
+# 即時実行機能のデバッグ
+python scripts/debug_immediate_execution.py
+
+# 大量テストデータの追加
+python scripts/add_bulk_test_data.py
+```
+
+詳細は [scripts/README.md](scripts/README.md) を参照してください。
 
 ## 環境変数
 
-必要な環境変数:
-- `GOOGLE_CLOUD_PROJECT`: GCPプロジェクトID
-- `CLOUD_TASKS_LOCATION`: Cloud Tasksのロケーション（デフォルト: asia-northeast1）
-- `CLOUD_TASKS_QUEUE`: Cloud Tasksキュー名（デフォルト: anpi-call-queue）
-- `LOG_LEVEL`: ログレベル（DEBUG/INFO/WARNING/ERROR）
+| 変数名 | 説明 | デフォルト値 |
+|--------|------|-------------|
+| `GOOGLE_CLOUD_PROJECT` | Google Cloud プロジェクトID | - |
+| `CLOUD_TASKS_LOCATION` | Cloud Tasksのロケーション | `asia-northeast1` |
+| `CLOUD_TASKS_QUEUE` | Cloud Tasksキュー名 | `anpi-call-queue` |
+| `IMMEDIATE_CALL_TOLERANCE_MINUTES` | 即時実行の許容時間（分） | `5` |
+| `LOG_LEVEL` | ログレベル | `INFO` |
+| `DB_HOST` | データベースホスト | - |
+| `DB_USER` | データベースユーザー | `default` |
+| `DB_PASSWORD` | データベースパスワード | - |
+| `DB_NAME` | データベース名 | `default` |
+| `ANPI_CALL_URL` | 安否確認サービスURL | Twilio Webhook URL |
 
 ## ドキュメント
 
 詳細は `docs/` フォルダを参照：
-- [setup-guide.md](docs/setup-guide.md) - セットアップ手順
-- [deployment.md](docs/deployment.md) - デプロイ手順
-- [gcp-resources.md](docs/gcp-resources.md) - GCPリソース仕様
-- [external-systems.md](docs/external-systems.md) - 外部システム接続情報
-- [troubleshooting.md](docs/troubleshooting.md) - トラブルシューティング
+
+- [📋 処理フロー詳細](docs/processing-flow.md) - システムの処理フロー図と詳細説明
+- [⚙️ セットアップ手順](docs/setup-guide.md) - 環境構築の詳細手順
+- [🚀 デプロイ手順](docs/deployment.md) - デプロイメント詳細ガイド
+- [☁️ GCPリソース仕様](docs/gcp-resources.md) - 使用するGCPリソースの詳細
+- [🔗 外部システム連携](docs/external-systems.md) - Twilio等の外部システム情報
+- [🏗️ システム構成](docs/system-architecture.md) - アーキテクチャ詳細
+- [🛠️ トラブルシューティング](docs/troubleshooting.md) - よくある問題と解決方法

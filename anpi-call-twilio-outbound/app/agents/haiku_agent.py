@@ -1,33 +1,30 @@
 import os
 from typing import Dict, Any
-from app.agents.base_agent import BaseAgent
+from agents.base_agent import BaseAgent
+from openai import OpenAI
 
-try:
-    from openai import OpenAI
-except ImportError:
-    OpenAI = None
 
 class HaikuAgent(BaseAgent):
     """俳句を作成するエージェント"""
-    
+
     def __init__(self):
         super().__init__("俳句エージェント")
         if OpenAI:
             self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         else:
             self.client = None
-        
+
     async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """俳句を生成する"""
         context = input_data.get("context", "")
-        
+
         if not self.client:
             return {
                 "success": False,
                 "error": "OpenAI client not available",
                 "agent": self.name
             }
-        
+
         try:
             response = self.client.chat.completions.create(
                 model="gpt-4",
@@ -44,15 +41,15 @@ class HaikuAgent(BaseAgent):
                 temperature=0.8,
                 max_tokens=100
             )
-            
+
             haiku = response.choices[0].message.content.strip()
-            
+
             return {
                 "success": True,
                 "haiku": haiku,
                 "agent": self.name
             }
-            
+
         except Exception as e:
             return {
                 "success": False,

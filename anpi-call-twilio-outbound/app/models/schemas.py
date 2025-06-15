@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from typing import Dict, Any, Optional
 from datetime import datetime, date, time
 from enum import Enum
-from app.models.client_event_types import ClientEventType
+from models.client_event_types import ClientEventType
 
 
 class Gender(str, Enum):

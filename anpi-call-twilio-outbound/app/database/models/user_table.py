@@ -2,7 +2,7 @@
 ユーザーテーブルORM定義
 """
 from sqlalchemy import Column, String, Date, Time, Enum, CHAR, VARCHAR, TIMESTAMP
-from app.models.schemas import Gender, Weekday
+from models.schemas import Gender, Weekday
 from .base import Base
 
 

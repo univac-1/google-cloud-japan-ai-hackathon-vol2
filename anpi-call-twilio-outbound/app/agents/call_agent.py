@@ -4,18 +4,15 @@ import base64
 import asyncio
 import logging
 from typing import Dict, Any, Optional
-from app.agents.base_agent import BaseAgent
-from app.agents.haiku_agent import HaikuAgent
-from app.agents.event_agent import EventAgent
-from app.models.openai_event_types import OpenAIEventType
-from app.models.server_event_types import ServerEventType
-from app.repositories.cloudsql_user_repository import CloudSQLUserRepository
-from app.models.schemas import User
-
-try:
-    import websockets
-except ImportError:
-    websockets = None
+import websockets
+from websockets.protocol import State
+from agents.base_agent import BaseAgent
+from agents.haiku_agent import HaikuAgent
+from agents.event_agent import EventAgent
+from models.openai_event_types import OpenAIEventType
+from models.server_event_types import ServerEventType
+from repositories.cloudsql_user_repository import CloudSQLUserRepository
+from models.schemas import User
 
 
 class CallAgent(BaseAgent):
@@ -53,10 +50,10 @@ class CallAgent(BaseAgent):
                 self.logger.warning(
                     f"User not found for user_id: {self.user_id}")
 
-        if not self.openai_ws or self.openai_ws.closed:
+        if not self.openai_ws or self.openai_ws.state == State.CLOSED:
             self.openai_ws = await websockets.connect(
                 'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01',
-                extra_headers={
+                additional_headers={
                     "Authorization": f"Bearer {self.openai_api_key}",
                     "OpenAI-Beta": "realtime=v1"
                 }
@@ -158,7 +155,7 @@ class CallAgent(BaseAgent):
 
     async def process_audio(self, audio_data: str) -> Optional[str]:
         """音声データを処理してOpenAIに送信"""
-        if not self.openai_ws or self.openai_ws.closed:
+        if not self.openai_ws or self.openai_ws.state == State.CLOSED:
             await self.connect_to_openai()
 
         # セッション準備完了まで待機
@@ -181,7 +178,7 @@ class CallAgent(BaseAgent):
 
     async def get_openai_response(self) -> Optional[Dict[str, Any]]:
         """OpenAIからのレスポンスを取得し、必要なServerEventのみ返す"""
-        if self.openai_ws and not self.openai_ws.closed:
+        if self.openai_ws and self.openai_ws.state != State.CLOSED:
             try:
                 message = await asyncio.wait_for(self.openai_ws.recv(), timeout=0.1)
                 parsed_message = json.loads(message)
@@ -330,33 +327,11 @@ class CallAgent(BaseAgent):
                 "session_id": event.get('session', {}).get('id', '')
             }
 
-        elif event_type == OpenAIEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED:
-            self.logger.debug("openai.speech_started", extra=extra_info)
-
-            return {
-                "type": ServerEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED
-            }
-
-        elif event_type == OpenAIEventType.INPUT_AUDIO_BUFFER_SPEECH_STOPPED:
-            self.logger.debug("openai.speech_stopped", extra=extra_info)
-
-        elif event_type == OpenAIEventType.INPUT_AUDIO_BUFFER_COMMITTED:
-            self.logger.debug("openai.buffer_committed", extra=extra_info)
-
         elif event_type == OpenAIEventType.CONVERSATION_ITEM_INPUT_AUDIO_TRANSCRIPTION_COMPLETED:
             user_transcript = event.get("transcript", "")
-            self.logger.debug("user_speech_recognized", extra={
-                "client_id": self.client_id,
-                "user_said": user_transcript,
-                "transcript_length": len(user_transcript) if user_transcript else 0
-            })
-
-        elif event_type == OpenAIEventType.RESPONSE_CREATED:
-            self.logger.debug("ai_response_started", extra=extra_info)
+            # TODO 話者の文字起こし完了.録音機能で実装
 
         elif event_type == OpenAIEventType.RESPONSE_DONE:
-            self.logger.debug("ai_response_completed", extra=extra_info)
-
             return {
                 "type": ServerEventType.RESPONSE_DONE
             }
@@ -382,18 +357,12 @@ class CallAgent(BaseAgent):
             }
 
         elif event_type == OpenAIEventType.RESPONSE_AUDIO_TRANSCRIPT_DELTA:
+            # TODO 録音機能で実装
             ai_transcript_delta = event.get("delta", "")
-            self.logger.debug(f"AI_TRANSCRIPT_DELTA: '{ai_transcript_delta}'", extra={
-                "client_id": self.client_id,
-                "delta": ai_transcript_delta
-            })
 
         elif event_type == OpenAIEventType.RESPONSE_AUDIO_TRANSCRIPT_DONE:
+            # TODO 録音機能で実装
             transcript = event.get("transcript", "")
-            self.logger.debug("ai_transcript_received", extra={
-                "client_id": self.client_id,
-                "transcript": transcript
-            })
 
             if transcript:
                 return {
@@ -402,60 +371,30 @@ class CallAgent(BaseAgent):
                 }
 
         elif event_type == OpenAIEventType.CONVERSATION_ITEM_INPUT_AUDIO_TRANSCRIPTION_DELTA:
+            # TODO 録音機能で実装
             transcript_delta = event.get("delta", "")
-            self.logger.debug(f"USER_TRANSCRIPT_DELTA: '{transcript_delta}'", extra={
-                "client_id": self.client_id,
-                "delta": transcript_delta
-            })
 
         elif event_type == OpenAIEventType.RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE:
             function_name = event.get('name')
             arguments = json.loads(event.get('arguments', '{}'))
             arguments['call_id'] = event.get('call_id')
+            # バックグラウンドで関数を実行
+            # TODO toolsを呼ぶ前にrealtime apiに一言入れさせる
+            asyncio.create_task(
+                self._handle_function_call(function_name, arguments))
 
-            self.logger.debug("openai.function_call", extra={
-                "client_id": self.client_id,
+            return {
+                "type": ServerEventType.AGENT_THINKING,
+                "message": "考え中です",
                 "function_name": function_name,
                 "arguments": arguments
-            })
-
-            # エージェント呼び出し通知とバックグラウンド実行
-            if function_name == "request_haiku":
-                # バックグラウンドで関数を実行
-                asyncio.create_task(
-                    self._handle_function_call(function_name, arguments))
-
-                return {
-                    "type": ServerEventType.AGENT_THINKING,
-                    "message": "俳句エージェントが俳句を考えています...",
-                    "function_name": function_name,
-                    "arguments": arguments
-                }
-
-            elif function_name == "recommend_events":
-                # バックグラウンドで関数を実行
-                asyncio.create_task(
-                    self._handle_function_call(function_name, arguments))
-
-                return {
-                    "type": ServerEventType.AGENT_THINKING,
-                    "message": "おすすめのイベントを探しています...",
-                    "function_name": function_name,
-                    "arguments": arguments
-                }
-
-        else:
-            # その他のイベントはログのみ
-            self.logger.debug(f"openai.{event_type}", extra={
-                **extra_info,
-                "full_event": event
-            })
+            }
 
         return None
 
     async def close(self):
         """接続をクローズ"""
-        if self.openai_ws and not self.openai_ws.closed:
+        if self.openai_ws and self.openai_ws.state != State.CLOSED:
             await self.openai_ws.close()
 
     async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:

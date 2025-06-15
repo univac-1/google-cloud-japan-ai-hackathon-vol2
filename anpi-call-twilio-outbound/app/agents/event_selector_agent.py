@@ -1,13 +1,9 @@
 import os
 from typing import Dict, Any, List
 from datetime import date
-from app.agents.base_agent import BaseAgent
-from app.models.schemas import User, Event
-
-try:
-    from openai import OpenAI
-except ImportError:
-    OpenAI = None
+from agents.base_agent import BaseAgent
+from models.schemas import User, Event
+from openai import OpenAI
 
 
 class EventSelectorAgent(BaseAgent):
@@ -21,7 +17,7 @@ class EventSelectorAgent(BaseAgent):
     async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         高齢者の好みに合うイベントを選定する
-        
+
         Args:
             input_data: {
                 "user": User型の高齢者情報,
@@ -29,7 +25,7 @@ class EventSelectorAgent(BaseAgent):
                 "events": List[Event]型のイベントリスト,
                 "count": 提案数
             }
-        
+
         Returns:
             {
                 "success": bool,
@@ -117,11 +113,11 @@ class EventSelectorAgent(BaseAgent):
                     line = line.strip()
                     if '. ' in line:
                         line = line.split('. ', 1)[1]
-                    
+
                     if ' - ' in line:
                         event_id, reason = line.split(' - ', 1)
                         event_id = event_id.strip()
-                        
+
                         if event_id in event_dict and event_id not in added_event_ids:
                             selected_events.append({
                                 "event": event_dict[event_id].model_dump(),

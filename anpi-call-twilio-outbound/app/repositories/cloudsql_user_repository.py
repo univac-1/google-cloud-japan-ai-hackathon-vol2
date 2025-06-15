@@ -3,8 +3,8 @@ from typing import Optional
 import logging
 from sqlalchemy import select
 
-from app.models.schemas import User
-from app.database import get_db_session, UserTable
+from models.schemas import User
+from database import get_db_session, UserTable
 
 logger = logging.getLogger(__name__)
 

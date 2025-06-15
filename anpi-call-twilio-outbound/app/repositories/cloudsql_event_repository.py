@@ -5,8 +5,8 @@ import logging
 
 from sqlalchemy import select, and_
 
-from app.models.schemas import Event
-from app.database import get_db_session, EventTable
+from models.schemas import Event
+from database import get_db_session, EventTable
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class CloudSQLEventRepository:
     """
     CloudSQLを使用したイベントリポジトリの実装
-    
+
     データベース接続は分離され、ビジネスロジックに集中
     """
 
@@ -27,7 +27,7 @@ class CloudSQLEventRepository:
                     select(EventTable).order_by(EventTable.start_datetime)
                 )
                 events = result.scalars().all()
-                
+
                 return [self._to_event_model(event) for event in events]
         except Exception as e:
             logger.error(f"イベント取得中にエラーが発生しました: {e}")
@@ -44,15 +44,15 @@ class CloudSQLEventRepository:
                     .order_by(EventTable.start_datetime)
                 )
                 events = result.scalars().all()
-                
+
                 return [self._to_event_model(event) for event in events]
         except Exception as e:
             logger.error(f"都道府県別イベント取得中にエラーが発生しました: {e}")
             raise Exception(f"都道府県別イベント取得中にエラーが発生しました: {str(e)}")
 
     async def get_events_by_date_range(
-        self, 
-        start_date: datetime, 
+        self,
+        start_date: datetime,
         end_date: datetime
     ) -> List[Event]:
         """日付範囲でイベントをフィルタリング"""
@@ -70,16 +70,16 @@ class CloudSQLEventRepository:
                     .order_by(EventTable.start_datetime)
                 )
                 events = result.scalars().all()
-                
+
                 return [self._to_event_model(event) for event in events]
         except Exception as e:
             logger.error(f"日付範囲別イベント取得中にエラーが発生しました: {e}")
             raise Exception(f"日付範囲別イベント取得中にエラーが発生しました: {str(e)}")
 
     async def get_events_by_prefecture_and_date_range(
-        self, 
-        prefecture: str, 
-        start_date: datetime, 
+        self,
+        prefecture: str,
+        start_date: datetime,
         end_date: datetime,
         max_count: int = 100
     ) -> List[Event]:
@@ -100,7 +100,7 @@ class CloudSQLEventRepository:
                     .limit(max_count)
                 )
                 events = result.scalars().all()
-                
+
                 return [self._to_event_model(event) for event in events]
         except Exception as e:
             logger.error(f"都道府県・日付範囲別イベント取得中にエラーが発生しました: {e}")
@@ -118,7 +118,7 @@ class CloudSQLEventRepository:
             now = datetime.now()
             start_date = now + timedelta(weeks=weeks_ahead_min)
             end_date = now + timedelta(weeks=weeks_ahead_max)
-            
+
             session = await get_db_session()
             async with session:
                 result = await session.execute(
@@ -134,7 +134,7 @@ class CloudSQLEventRepository:
                     .limit(max_count)
                 )
                 events = result.scalars().all()
-                
+
                 return [self._to_event_model(event) for event in events]
         except Exception as e:
             logger.error(f"今後のイベント取得中にエラーが発生しました: {e}")

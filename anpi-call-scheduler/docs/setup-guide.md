@@ -83,7 +83,7 @@ chmod +x deploy-complete.sh
 | LOG_LEVEL | ログレベル | debug |
 | JOB_NAME | Cloud Run Job名 | anpi-call-scheduler-dev |
 | REGION | デプロイリージョン | asia-northeast1 |
-| SCHEDULE | 実行スケジュール（cron形式） | "0 * * * *" |
+| SCHEDULE | 実行スケジュール（cron形式） | "*/15 * * * *" |
 | SCHEDULER_NAME | Cloud Scheduler名 | anpi-call-scheduler-dev-hourly |
 | CPU | CPUリソース | 1 |
 | MEMORY | メモリリソース | 512Mi |

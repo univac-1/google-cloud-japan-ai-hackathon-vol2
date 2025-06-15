@@ -33,24 +33,10 @@ steps:
       - 'job.yaml'
       - '--region=${_REGION}'
       - '--quiet'
-    env:
-      - 'IMAGE_URL=gcr.io/$PROJECT_ID/anpi-call-scheduler:$BUILD_ID'
-      - 'JOB_NAME=${_JOB_NAME}'
-      - 'CPU=${_CPU}'
-      - 'MEMORY=${_MEMORY}'
-      - 'TASK_TIMEOUT=${_TASK_TIMEOUT}'
-      - 'ENVIRONMENT=${_ENVIRONMENT}'
-      - 'LOG_LEVEL=${_LOG_LEVEL}'
 
 # 置換変数のデフォルト値
 substitutions:
-  _JOB_NAME: 'anpi-call-create-task-job'
   _REGION: 'asia-northeast1'
-  _CPU: '1'
-  _MEMORY: '512Mi'
-  _TASK_TIMEOUT: '300'
-  _ENVIRONMENT: 'development'
-  _LOG_LEVEL: 'info'
 
 # イメージをプッシュ
 images:

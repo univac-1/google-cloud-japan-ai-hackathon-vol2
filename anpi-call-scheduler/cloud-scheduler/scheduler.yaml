@@ -5,7 +5,7 @@ metadata:
 data:
   # Cloud Scheduler設定
   scheduler_name: "anpi-call-scheduler-job"
-  schedule: "*/1 * * * *"  # 毎分実行（即時実行対応）
+  schedule: "*/15 * * * *"  # 15分間隔実行（即時実行対応）
   timezone: "Asia/Tokyo"
   location: "asia-northeast1"
   
@@ -17,4 +17,4 @@ data:
   service_account: "894704565810-compute@developer.gserviceaccount.com"
   
   # 説明
-  description: "安否確認コール即時実行スケジューラー - 毎分実行で現在時刻に電話をかけるべきユーザーを判定"
+  description: "安否確認コール即時実行スケジューラー - 15分間隔実行で現在時刻に電話をかけるべきユーザーを判定"

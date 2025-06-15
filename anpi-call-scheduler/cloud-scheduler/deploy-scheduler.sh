@@ -15,10 +15,10 @@ PROJECT_ID=$(gcloud config get-value project)
 REGION=asia-northeast1
 SCHEDULER_NAME=anpi-call-scheduler-job
 JOB_NAME=anpi-call-create-task-job
-SCHEDULE="0 * * * *"  # 毎時0分実行
+SCHEDULE="*/15 * * * *"  # 15分間隔実行
 TIMEZONE="Asia/Tokyo"
 SERVICE_ACCOUNT="894704565810-compute@developer.gserviceaccount.com"
-DESCRIPTION="安否確認コールスケジューラー - 毎時0分にCloud Run Jobを実行してタスクを作成"
+DESCRIPTION="安否確認コールスケジューラー - 15分間隔でCloud Run Jobを実行してタスクを作成"
 
 echo -e "${BLUE}=== Cloud Scheduler デプロイ開始 ===${NC}"
 echo -e "${YELLOW}プロジェクトID: $PROJECT_ID${NC}"

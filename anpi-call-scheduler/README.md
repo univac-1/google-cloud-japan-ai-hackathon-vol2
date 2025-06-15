@@ -10,11 +10,11 @@
 - 現在時刻と設定された曜日・時間を比較して即時実行判定
 - Google Cloud Tasks に即時実行タスクを作成
 - Cloud Run Jobs として定期実行
-- Cloud Scheduler による定期実行（毎分または設定間隔）
+- Cloud Scheduler による定期実行（15分間隔または設定間隔）
 
 ### システム構成
 
-- **Cloud Scheduler**: 定期的に Cloud Run Job をトリガー（推奨：毎分実行）
+- **Cloud Scheduler**: 定期的に Cloud Run Job をトリガー（推奨：15分間隔実行）
 - **Cloud Run Job**: Python バッチ処理で即時実行判定・タスク作成
 - **Cloud SQL**: ユーザー情報と通話設定を格納
 - **Cloud Tasks**: 個別の安否確認タスクをキューイング

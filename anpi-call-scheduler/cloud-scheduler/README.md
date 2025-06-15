@@ -20,7 +20,7 @@
 
 ### 実行フロー
 
-1. **定期実行**: 毎分Cloud Schedulerがトリガー（即時実行対応）
+1. **定期実行**: 15分間隔でCloud Schedulerがトリガー（即時実行対応）
 2. **HTTP POST**: Cloud Run JobのAPI エンドポイントを呼び出し
 3. **即時判定**: Cloud Run Jobで現在時刻に基づく即時実行対象者の判定
 4. **タスク作成**: 対象者に対して即座にCloud Tasksタスクを作成

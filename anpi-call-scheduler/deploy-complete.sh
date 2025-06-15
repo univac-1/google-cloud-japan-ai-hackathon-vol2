@@ -20,7 +20,7 @@ PROJECT_ID=$(gcloud config get-value project)
 REGION="${REGION:-asia-northeast1}"
 JOB_NAME="${JOB_NAME:-anpi-call-create-task-job}"
 SCHEDULER_NAME="${SCHEDULER_NAME:-anpi-call-scheduler-job}"
-SCHEDULE="${SCHEDULE:-*/1 * * * *}"  # 毎分実行（即時実行対応）
+SCHEDULE="${SCHEDULE:-*/15 * * * *}"  # 15分間隔実行（即時実行対応）
 TIMEZONE="${TIMEZONE:-Asia/Tokyo}"
 SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-894704565810-compute@developer.gserviceaccount.com}"
 

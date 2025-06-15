@@ -1,6 +1,6 @@
 # ANPI Call Scheduler
 
-安否確認コール システムのスケジューラー。データベースからユーザーの通話設定を取得し、現在時刻に基づいて即座に実行すべき安否確認を判定してCloud Tasksにタスクを作成します。
+安否確認コール システムのスケジューラー。データベースからユーザーの通話設定を取得し、現在時刻に基づいて即座に実行すべき安否確認を判定して外部APIを呼び出します。
 
 ## プロジェクト概要
 
@@ -8,16 +8,15 @@
 
 - MySQL（Cloud SQL）データベースからユーザーの通話設定を取得
 - 現在時刻と設定された曜日・時間を比較して即時実行判定
-- Google Cloud Tasks に即時実行タスクを作成
+- 外部API呼び出しによる即時実行タスクを作成
 - Cloud Run Jobs として定期実行
 - Cloud Scheduler による定期実行（15分間隔または設定間隔）
 
 ### システム構成
 
 - **Cloud Scheduler**: 定期的に Cloud Run Job をトリガー（推奨：15分間隔実行）
-- **Cloud Run Job**: Python バッチ処理で即時実行判定・タスク作成
+- **Cloud Run Job**: Python バッチ処理で即時実行判定・API呼び出し
 - **Cloud SQL**: ユーザー情報と通話設定を格納
-- **Cloud Tasks**: 個別の安否確認タスクをキューイング
 - **外部連携**: Twilio サービスによる音声通話実行
 
 ### 処理の流れ
@@ -25,8 +24,8 @@
 1. **現在時刻チェック**: データベースから全ユーザーの通話設定を取得
 2. **即時実行判定**: 現在時刻と各ユーザーの設定（曜日・時刻）を比較
 3. **許容時間内確認**: 指定時刻の前後5分以内（設定可能）かを判定
-4. **即時タスク作成**: 条件に一致するユーザーのCloud Tasksタスクを即座に作成
-5. **通話実行**: 作成されたタスクによりTwilioサービスがWebhook経由で通話実行
+4. **即時API呼び出し**: 条件に一致するユーザーの外部APIを即座に呼び出し
+5. **通話実行**: 外部APIによりTwilioサービスが通話実行
 
 **即時実行専用設計**: このアプリケーションは将来のスケジューリング機能を持たず、現在時刻に基づく即時実行のみを行います。定期的な実行により適切なタイミングでの安否確認を実現します。
 
@@ -54,12 +53,6 @@ anpi-call-scheduler/
 │   ├── deploy-scheduler.sh      # Cloud Scheduler専用デプロイ
 │   ├── scheduler.yaml           # スケジューラー設定定義
 │   └── README.md                # Cloud Scheduler使用方法
-│
-├── cloud-tasks/                 # Cloud Tasks設定
-│   ├── tasks-functions.sh      # 共通関数ライブラリ
-│   ├── deploy-cloud-tasks.sh   # Cloud Tasks専用デプロイ
-│   ├── tasks-config.yaml       # キュー設定定義
-│   └── README.md               # Cloud Tasks使用方法
 │
 ├── scripts/                    # 開発・テスト用ユーティリティ
 │   ├── test_db_connection.py   # データベース接続テスト
@@ -121,11 +114,10 @@ anpi-call-scheduler/
 
 統合デプロイスクリプトは以下をすべて自動実行します：
 1. 必要なAPIの有効化
-2. Cloud Tasksキューの作成
-3. Cloud Run Jobs のビルド・デプロイ
-4. サービスアカウント権限の設定
-5. Cloud Scheduler の作成・設定
-6. 動作確認テスト
+2. Cloud Run Jobs のビルド・デプロイ
+3. サービスアカウント権限の設定
+4. Cloud Scheduler の作成・設定
+5. 動作確認テスト
 
 ### 個別実行
 
@@ -171,8 +163,8 @@ gcloud scheduler jobs run anpi-call-scheduler-job --location=asia-northeast1
 # 実行履歴確認
 gcloud run jobs executions list --job=anpi-call-create-task-job --region=asia-northeast1 --limit=5
 
-# 作成されたタスクの確認
-gcloud tasks list --queue=anpi-call-queue --location=asia-northeast1
+# 作成されたタスクの確認（外部API経由）
+# 外部システムで確認してください
 
 # ログ確認
 gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=anpi-call-create-task-job" --limit=20
@@ -189,9 +181,6 @@ gcloud scheduler jobs delete anpi-call-scheduler-job --location=asia-northeast1
 
 # Job詳細確認
 gcloud run jobs describe anpi-call-create-task-job --region=asia-northeast1
-
-# キュー状態確認
-gcloud tasks queues describe anpi-call-queue --location=asia-northeast1
 ```
 
 ### 開発・テスト用スクリプト
@@ -219,8 +208,6 @@ python scripts/add_bulk_test_data.py
 | 変数名 | 説明 | デフォルト値 |
 |--------|------|-------------|
 | `GOOGLE_CLOUD_PROJECT` | Google Cloud プロジェクトID | - |
-| `CLOUD_TASKS_LOCATION` | Cloud Tasksのロケーション | `asia-northeast1` |
-| `CLOUD_TASKS_QUEUE` | Cloud Tasksキュー名 | `anpi-call-queue` |
 | `IMMEDIATE_CALL_TOLERANCE_MINUTES` | 即時実行の許容時間（分） | `5` |
 | `LOG_LEVEL` | ログレベル | `INFO` |
 | `DB_HOST` | データベースホスト | - |

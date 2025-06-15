@@ -69,10 +69,10 @@ nano .env
 
 ```bash
 # デプロイスクリプトに実行権限を付与
-chmod +x deploy.sh
+chmod +x deploy-complete.sh
 
 # 初回デプロイを実行
-./deploy.sh
+./deploy-complete.sh
 ```
 
 ## 設定パラメータ
@@ -83,7 +83,7 @@ chmod +x deploy.sh
 | LOG_LEVEL | ログレベル | debug |
 | JOB_NAME | Cloud Run Job名 | anpi-call-scheduler-dev |
 | REGION | デプロイリージョン | asia-northeast1 |
-| SCHEDULE | 実行スケジュール（cron形式） | "0 * * * *" |
+| SCHEDULE | 実行スケジュール（cron形式） | "*/15 * * * *" |
 | SCHEDULER_NAME | Cloud Scheduler名 | anpi-call-scheduler-dev-hourly |
 | CPU | CPUリソース | 1 |
 | MEMORY | メモリリソース | 512Mi |

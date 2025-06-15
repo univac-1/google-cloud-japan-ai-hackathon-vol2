@@ -18,6 +18,14 @@ python scripts/test_db_connection.py
 python scripts/check_db_schema.py
 ```
 
+### add_test_data.sql
+データベースに直接テストデータを追加するためのSQLスクリプト。現在時刻に近い土曜日設定のテストユーザーを追加します。
+
+```bash
+# Cloud SQL Proxyを使用してSQLファイルを実行
+mysql -h 127.0.0.1 -P 3306 -u default -p default < scripts/add_test_data.sql
+```
+
 ## テストデータ関連
 
 ### add_test_data.py

@@ -64,6 +64,7 @@ anpi-call-scheduler/
 ├── scripts/                    # 開発・テスト用ユーティリティ
 │   ├── test_db_connection.py   # データベース接続テスト
 │   ├── add_test_data.py        # テストデータ追加
+│   ├── add_test_data.sql       # SQLテストデータ
 │   ├── add_current_time_test_data.py # 現在時刻テストデータ
 │   ├── add_bulk_test_data.py   # 大量テストデータ追加
 │   ├── check_db_schema.py      # スキーマ確認

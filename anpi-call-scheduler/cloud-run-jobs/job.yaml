@@ -37,7 +37,7 @@ spec:
             - name: IMMEDIATE_CALL_TOLERANCE_MINUTES
               value: "5"
             - name: DB_HOST
-              value: "/cloudsql/univac-aiagent:asia-northeast1:cloudsql-01"
+              value: "localhost"
             - name: DB_PORT
               value: "3306"
             - name: DB_USER
@@ -50,3 +50,5 @@ spec:
               value: "true"
             - name: IS_CLOUD_RUN_JOB
               value: "true"
+            - name: TZ
+              value: "Asia/Tokyo"

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-現在時刻に近いテストデータを追加するスクリプト
+現在時刻に合わせてテストデータを更新するスクリプト
 """
 
 import mysql.connector
 from datetime import datetime, time
 
-def add_current_time_test_data():
-    """現在時刻に近いテストデータを追加"""
+def update_test_data_to_current_time():
+    """テストデータを現在時刻に更新"""
     
     # データベース接続情報
     db_config = {
@@ -21,20 +21,24 @@ def add_current_time_test_data():
     
     current_time = datetime.now()
     print(f"現在時刻: {current_time.strftime('%H:%M:%S')}")
-    print(f"現在曜日: {current_time.weekday()} (土曜日=5)")
+    print(f"現在曜日: {current_time.weekday()} (Python weekday: 0=月曜日, 6=日曜日)")
     
-    # 現在時刻の前後2分のテスト時間を生成
-    test_times = [
-        (current_time.hour, current_time.minute - 2),  # 2分前
-        (current_time.hour, current_time.minute - 1),  # 1分前  
-        (current_time.hour, current_time.minute),      # 現在時刻
-        (current_time.hour, current_time.minute + 1),  # 1分後
-        (current_time.hour, current_time.minute + 2),  # 2分後
-    ]
+    # 曜日マッピング
+    weekday_to_db = {
+        0: 'mon', 1: 'tue', 2: 'wed', 3: 'thu',
+        4: 'fri', 5: 'sat', 6: 'sun'
+    }
     
-    # 分の調整（負の値や60以上の値を正規化）
-    normalized_times = []
-    for hour, minute in test_times:
+    current_db_weekday = weekday_to_db[current_time.weekday()]
+    print(f"データベース用曜日: {current_db_weekday}")
+    
+    # 現在時刻の前後のテスト時間を生成
+    test_times = []
+    for offset in [-2, -1, 0, 1, 2]:  # 2分前から2分後まで
+        hour = current_time.hour
+        minute = current_time.minute + offset
+        
+        # 分の調整
         if minute < 0:
             hour -= 1
             minute += 60
@@ -42,33 +46,34 @@ def add_current_time_test_data():
             hour += 1
             minute -= 60
         
+        # 時の調整
         if hour < 0:
             hour = 23
         elif hour >= 24:
             hour = 0
             
-        normalized_times.append(time(hour, minute, 0))
+        test_times.append(time(hour, minute, 0))
     
-    print("追加するテスト時間:")
-    for i, test_time in enumerate(normalized_times):
-        print(f"  - {test_time} ({['2分前', '1分前', '現在時刻', '1分後', '2分後'][i]})")
+    print("\n更新するテスト時間:")
+    for i, test_time in enumerate(test_times):
+        offset_desc = ['2分前', '1分前', '現在時刻', '1分後', '2分後'][i]
+        print(f"  - {test_time} ({offset_desc})")
     
     connection = None
     try:
         connection = mysql.connector.connect(**db_config)
         cursor = connection.cursor()
         
-        # 既存の現在時刻テストデータを削除
+        # 既存のテストデータを削除
         cursor.execute("""
             DELETE FROM users 
-            WHERE last_name = 'テスト現在時刻' 
-            OR last_name LIKE 'テスト時刻%'
+            WHERE last_name LIKE 'テスト時刻%'
         """)
-        print(f"既存のテストデータを削除: {cursor.rowcount}件")
+        print(f"\n既存のテストデータを削除: {cursor.rowcount}件")
         
         # 新しいテストデータを挿入
-        for i, test_time in enumerate(normalized_times):
-            time_label = ['2分前', '1分前', '現在時刻', '1分後', '2分後'][i]
+        for i, test_time in enumerate(test_times):
+            offset_desc = ['2分前', '1分前', '現在時刻', '1分後', '2分後'][i]
             
             cursor.execute("""
                 INSERT INTO users (
@@ -79,15 +84,15 @@ def add_current_time_test_data():
                 )
             """, (
                 f'test-current-{i+1}',
-                f'テスト時刻{time_label}',
+                f'テスト時刻{offset_desc}',
                 '太郎',
                 '090-1234-5678',
                 test_time,
-                'sat'  # 土曜日
+                current_db_weekday
             ))
         
         connection.commit()
-        print(f"新しいテストデータを追加: {len(normalized_times)}件")
+        print(f"新しいテストデータを追加: {len(test_times)}件")
         
         # 追加されたデータを確認
         cursor.execute("""
@@ -98,7 +103,7 @@ def add_current_time_test_data():
         """)
         
         results = cursor.fetchall()
-        print("\n追加されたテストデータ:")
+        print("\n更新されたテストデータ:")
         for row in results:
             print(f"  - {row[0]} {row[1]}: {row[2]} ({row[3]})")
         
@@ -111,4 +116,4 @@ def add_current_time_test_data():
             print("\nデータベース接続を閉じました")
 
 if __name__ == "__main__":
-    add_current_time_test_data()
+    update_test_data_to_current_time()

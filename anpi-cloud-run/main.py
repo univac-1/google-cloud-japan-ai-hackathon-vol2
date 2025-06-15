@@ -41,6 +41,25 @@ curl -X POST "https://taskhandler-hkzk5xnm7q-uc.a.run.app/enqueue-task" \
        "message": "Hello from Cloud Tasks!",
        "recipient_phone_number": "+819081729874",
        "delay_seconds": 0}'
+       
+# 認証が必要な場合
+curl -X POST "https://taskhandler-hkzk5xnm7q-uc.a.run.app/enqueue-task" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+    -d '{
+    "message": "Hello from Cloud Tasks!",
+    "recipient_phone_number": "+819081729874",
+    "delay_seconds": 0}'
+```
+
+```
+ curl -X POST "https://taskhandler-hkzk5xnm7q-uc.a.run.app/task-handler" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+  -d '{
+    "message": "Hello from Curl",
+    "recipient_phone_number": "+819081729874"
+  }'
 ```
 
 
@@ -81,12 +100,12 @@ tasks_client = tasks_v2.CloudTasksClient()
 
 
 class Message(BaseModel):
-    message: str
+    message: Optional[str] = ""
     recipient_phone_number: str
 
 
 class TaskRequest(BaseModel):
-    message: str
+    message: Optional[str] = ""
     delay_seconds: Optional[int] = 0
     recipient_phone_number: str
 

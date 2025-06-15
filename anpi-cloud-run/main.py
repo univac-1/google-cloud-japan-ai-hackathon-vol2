@@ -65,12 +65,14 @@ curl -X POST "https://taskhandler-hkzk5xnm7q-uc.a.run.app/enqueue-task" \
 
 """
 
+import asyncio
 import json
 import logging
 import os
 from datetime import datetime, timedelta
 from typing import Optional
 
+import httpx
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
@@ -123,22 +125,70 @@ async def task_handler(payload: Message):
         f"Processing task to {payload.recipient_phone_number} with message: {payload.message}"
     )
 
-    try:
-        # Find your Account SID and Auth Token at twilio.com/console
-        # and set the environment variables. See http://twil.io/secure
-        client = Client(ACCOUNT_SID, AUTH_TOKEN)
+    # try:
+    #     # Find your Account SID and Auth Token at twilio.com/console
+    #     # and set the environment variables. See http://twil.io/secure
+    #     client = Client(ACCOUNT_SID, AUTH_TOKEN)
 
-        # As an example,
-        call = client.calls.create(
-            from_=TWILIO_PHONE_NUMBER,
-            to=payload.recipient_phone_number,
-            url="http://demo.twilio.com/docs/voice.xml",  # URL消したらどうなるか？
+    #     # As an example,
+    #     call = client.calls.create(
+    #         from_=TWILIO_PHONE_NUMBER,
+    #         to=payload.recipient_phone_number,
+    #         url="http://demo.twilio.com/docs/voice.xml",
+    #     )
+
+    #     print(call.sid)
+
+    # except:
+    #     logger.warning("CALL FAILED!!")
+    # logger.info(f"Task completed successfully: {payload.message}")
+
+    # return {
+    #     "status": "completed",
+    #     "message": f"Successfully processed: {payload.message}",
+    #     "processed_at": datetime.utcnow().isoformat(),
+    # }
+
+    try:
+        # 外部サービスのURL
+        outbound_service_url = (
+            "https://speech-assistant-outbound-hkzk5xnm7q-an.a.run.app/outbound-call"
         )
 
-        print(call.sid)
+        # POSTで送信するデータ
+        post_data = {"to_number": payload.recipient_phone_number}
 
-    except:
+        # 非同期HTTPクライアントを使用してPOSTリクエストを送信
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                outbound_service_url,
+                json=post_data,
+                headers={"Content-Type": "application/json"},
+            )
+            response.raise_for_status()  # HTTPエラーの場合は例外を発生
+
+            # レスポンスをログに記録
+            logger.info(
+                f"Outbound call initiated successfully. Response: {response.text}"
+            )
+            print(f"HTTP Status: {response.status_code}")
+            print(f"Response body: {response.text}")
+
+    except httpx.RequestError as e:
+        logger.error(f"Network error occurred: {e}")
         logger.warning("CALL FAILED!!")
+        # 必要に応じてリトライロジックやエラーハンドリングを追加
+
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            f"HTTP error occurred: {e.response.status_code} - {e.response.text}"
+        )
+        logger.warning("CALL FAILED!!")
+
+    except Exception as e:
+        logger.error(f"Unexpected error occurred: {e}")
+        logger.warning("CALL FAILED!!")
+
     logger.info(f"Task completed successfully: {payload.message}")
 
     return {

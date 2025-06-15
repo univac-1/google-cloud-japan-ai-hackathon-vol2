@@ -37,7 +37,6 @@
 ```
 anpi-call-scheduler/
 ├── deploy-complete.sh           # 統合デプロイスクリプト（推奨）
-├── test_db_connection.py        # データベース接続テスト
 │
 ├── cloud-run-jobs/              # Cloud Run Jobs専用ディレクトリ
 │   ├── main.py                  # バッチ処理アプリケーション
@@ -62,8 +61,15 @@ anpi-call-scheduler/
 │   ├── tasks-config.yaml       # キュー設定定義
 │   └── README.md               # Cloud Tasks使用方法
 │
-├── cloudbuild.yaml             # Cloud Build設定
-├── test_db_connection.py       # データベース接続テスト
+├── scripts/                    # 開発・テスト用ユーティリティ
+│   ├── test_db_connection.py   # データベース接続テスト
+│   ├── add_test_data.py        # テストデータ追加
+│   ├── add_current_time_test_data.py # 現在時刻テストデータ
+│   ├── add_bulk_test_data.py   # 大量テストデータ追加
+│   ├── check_db_schema.py      # スキーマ確認
+│   ├── debug_immediate_execution.py # デバッグ用
+│   ├── cloud-sql-proxy         # Cloud SQL Proxyバイナリ
+│   └── README.md               # スクリプト使用方法
 │
 ├── docs/                       # ドキュメント
 │   ├── processing-flow.md      # 処理フロー詳細
@@ -87,6 +93,7 @@ anpi-call-scheduler/
 | `cloud-scheduler/deploy-scheduler.sh` | Scheduler設定 | Cloud Scheduler の作成・管理専用 |
 | `cloud-run-jobs/Dockerfile` | コンテナ | Cloud Run Jobs用Dockerイメージ |
 | `cloud-run-jobs/requirements.txt` | 依存関係 | Python パッケージ定義 |
+| `scripts/test_db_connection.py` | 開発・テスト | データベース接続テスト用スクリプト |
 
 ## 実行方法
 
@@ -185,6 +192,26 @@ gcloud run jobs describe anpi-call-create-task-job --region=asia-northeast1
 # キュー状態確認
 gcloud tasks queues describe anpi-call-queue --location=asia-northeast1
 ```
+
+### 開発・テスト用スクリプト
+
+開発・テスト・デバッグ用のスクリプトは `scripts/` フォルダに整理されています：
+
+```bash
+# データベース接続テスト
+python scripts/test_db_connection.py
+
+# 現在時刻に近いテストデータを追加
+python scripts/add_current_time_test_data.py
+
+# 即時実行機能のデバッグ
+python scripts/debug_immediate_execution.py
+
+# 大量テストデータの追加
+python scripts/add_bulk_test_data.py
+```
+
+詳細は [scripts/README.md](scripts/README.md) を参照してください。
 
 ## 環境変数
 

@@ -32,6 +32,7 @@ class CallAgent(BaseAgent):
         self.conversation_history = []
         self.accumulated_audio = bytearray()
         self.session_ready = False
+        self.last_assistant_item = None
         self.logger = logging.getLogger(
             f"{__name__}.{self.__class__.__name__}")
 
@@ -332,6 +333,8 @@ class CallAgent(BaseAgent):
             # TODO 話者の文字起こし完了.録音機能で実装
 
         elif event_type == OpenAIEventType.RESPONSE_DONE:
+            # Reset last_assistant_item when response is complete
+            self.last_assistant_item = None
             return {
                 "type": ServerEventType.RESPONSE_DONE
             }
@@ -342,10 +345,16 @@ class CallAgent(BaseAgent):
                 audio_chunk = base64.b64decode(delta)
                 self.accumulated_audio.extend(audio_chunk)
 
+                # Track last assistant item for interruption handling
+                item_id = event.get('item_id')
+                if item_id:
+                    self.last_assistant_item = item_id
+
                 return {
                     "type": ServerEventType.AUDIO,
                     "audio": delta,
-                    "format": "g711_ulaw"
+                    "format": "g711_ulaw",
+                    "item_id": item_id
                 }
 
         elif event_type == OpenAIEventType.RESPONSE_AUDIO_DONE:
@@ -370,6 +379,13 @@ class CallAgent(BaseAgent):
                     "transcript": transcript
                 }
 
+        elif event_type == OpenAIEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED:
+            # Handle speech started event for interruption
+            return {
+                "type": ServerEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED,
+                "last_assistant_item": self.last_assistant_item
+            }
+
         elif event_type == OpenAIEventType.CONVERSATION_ITEM_INPUT_AUDIO_TRANSCRIPTION_DELTA:
             # TODO 録音機能で実装
             transcript_delta = event.get("delta", "")
@@ -391,6 +407,19 @@ class CallAgent(BaseAgent):
             }
 
         return None
+
+    async def handle_interruption(self, audio_end_ms: int) -> None:
+        """Handle interruption by truncating the current response"""
+        if self.last_assistant_item and self.openai_ws:
+            self.logger.info(f"Truncating item {self.last_assistant_item} at {audio_end_ms}ms")
+            truncate_event = {
+                "type": "conversation.item.truncate",
+                "item_id": self.last_assistant_item,
+                "content_index": 0,
+                "audio_end_ms": audio_end_ms
+            }
+            await self.openai_ws.send(json.dumps(truncate_event))
+            self.last_assistant_item = None
 
     async def close(self):
         """接続をクローズ"""

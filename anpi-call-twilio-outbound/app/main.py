@@ -142,6 +142,7 @@ async def handle_media_stream(websocket: WebSocket, user_id: str = None):
     latest_media_timestamp = 0
     mark_queue = []
     response_start_timestamp_twilio = None
+    last_assistant_item = None
 
     # Create CallAgent instance with user_id from query params or default
     effective_user_id = user_id or DEFAULT_USER_ID
@@ -217,12 +218,19 @@ async def handle_media_stream(websocket: WebSocket, user_id: str = None):
                     if response_start_timestamp_twilio is None:
                         response_start_timestamp_twilio = latest_media_timestamp
 
-                        # CallAgent handles item tracking internally
+                    # Track last assistant item from response
+                    item_id = response.get('item_id')
+                    if item_id:
+                        last_assistant_item = item_id
 
                     await send_mark(websocket, stream_sid)
 
                 # Handle speech started event from CallAgent
                 elif event_type == ServerEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED:
+                    # Get last_assistant_item from response if available
+                    item_from_response = response.get('last_assistant_item')
+                    if item_from_response:
+                        last_assistant_item = item_from_response
                     await handle_speech_started_event()
 
         except Exception as e:
@@ -230,8 +238,16 @@ async def handle_media_stream(websocket: WebSocket, user_id: str = None):
 
     async def handle_speech_started_event():
         """Handle interruption when the caller's speech starts."""
-        nonlocal response_start_timestamp_twilio
+        nonlocal response_start_timestamp_twilio, last_assistant_item
         logger.info("Handling speech started event.")
+
+        # Calculate elapsed time and send truncate event to OpenAI
+        if mark_queue and response_start_timestamp_twilio is not None and last_assistant_item:
+            elapsed_time = latest_media_timestamp - response_start_timestamp_twilio
+            logger.info(f"Interrupting response. Elapsed time: {elapsed_time}ms, Item ID: {last_assistant_item}")
+            
+            # Send truncate event through CallAgent
+            await call_agent.handle_interruption(elapsed_time)
 
         # Clear Twilio audio buffer
         await websocket.send_json({
@@ -241,6 +257,7 @@ async def handle_media_stream(websocket: WebSocket, user_id: str = None):
 
         mark_queue.clear()
         response_start_timestamp_twilio = None
+        last_assistant_item = None
 
     async def send_mark(connection, stream_sid):
         if stream_sid:

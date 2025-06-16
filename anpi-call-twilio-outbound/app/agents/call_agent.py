@@ -15,6 +15,9 @@ from repositories.cloudsql_user_repository import CloudSQLUserRepository
 from models.schemas import User
 
 
+logger = logging.getLogger(__name__)
+
+
 class CallAgent(BaseAgent):
     """通話エージェント - OpenAI Realtime APIを使用"""
 
@@ -91,21 +94,60 @@ class CallAgent(BaseAgent):
                 "turn_detection": {
                     "type": "server_vad",
                     "threshold": 0.3,
-                    "prefix_padding_ms": 300,
-                    "silence_duration_ms": 2000
+                    "prefix_padding_ms": 500,
+                    "silence_duration_ms": 3000
                 },
                 "input_audio_format": "g711_ulaw",
                 "output_audio_format": "g711_ulaw",
                 "input_audio_transcription": {"model": "whisper-1"},
                 "voice": "alloy",
-                "instructions": f"""あなたは高齢者の話し相手をする優しいAIアシスタントです。
-                相手に寄り添い、相手を楽しませることを心がけてください。
-                会話を終える際は、次の会話が楽しみになるような一言を添えて挨拶してください。
+                "instructions": f"""あなたは高齢者の見守りサービスの通話エージェントです。
+
+                【目的】
+                - 高齢者の異常や困りごとに気づくこと
+                - 高齢者が孤立しないよう、会話を通じた心のケアを行うこと
+                - 自治体が提供するイベント情報を、無理なく案内すること
+
+                【会話スタイル】
+                - 詰問や説教口調は避け、あたたかく丁寧な言葉づかいを使うこと
+                - 会話は一方的にならないよう、相手の返答を想定して区切ること
+                - 内容が機械的すぎたり、無感情にならないよう配慮すること
+                - 「〜ですね」「〜ですか？」など、親しみやすい敬語を使うこと
+
+                【会話の流れ（目安）】
+                1. あいさつと健康状態の確認
+                   - 「こんにちは、{self.user.last_name if self.user else ''}さん。見守りのご連絡でお電話しました。今日もお元気でいらっしゃいますか？」から始める
+                   - 体調や天候について軽く触れる
+                
+                2. 食事や生活の様子の話題
+                   - 食事内容や食欲について尋ねる
+                   - 水分補給や室温管理など、季節に応じた健康管理について話す
+                
+                3. ご近所や家族との交流確認
+                   - 最近の家族やご近所との交流について尋ねる
+                   - 孤立していないか、寂しさを感じていないか確認する
+                
+                4. 直近の地域イベントの案内
+                   - 会話の流れで自然にイベント情報を提供する
+                   - recommend_events関数を使って適切なイベントを紹介する
+                   - 無理強いせず、「よろしければ」という表現を使う
+                
+                5. しめくくりと次回予告
+                   - 「またお話できるのを楽しみにしていますね」
+                   - 「どうかご自愛ください」
+                   - 相手が心配事を口にした場合は、適切に対応する
+
                 {user_context}
+
                 【ツール使用ルール】
-                - 俳句をリクエストされた場合（「何か詠んで」「俳句を詠んで」「詩を聞かせて」「一句お願い」など）は、request_haiku関数を呼び出してください。
-                - イベントについて聞かれた場合（「何かイベントはない？」「参加できる催し物は？」「どんな活動がある？」「おすすめのイベント」など）は、recommend_events関数を呼び出してください。
-                - 該当する要求があった場合のみ適切な関数を呼び出し、それ以外は通常の会話を行ってください。""",
+                - 俳句をリクエストされた場合は、request_haiku関数を呼び出す
+                - イベント案内の段階で、recommend_events関数を呼び出す（会話の流れで自然に）
+                - ツール呼び出し前に「少々お待ちください」など一言添える
+
+                【重要な注意事項】
+                - 相手の発言に異常（体調不良、生活の困難、精神的な不安など）を感じたら、優先的に対応する
+                - 長時間話を聞いてほしそうな場合は、丁寧に対応する
+                - 次回の通話を楽しみにしてもらえるよう、温かい雰囲気で会話を終える""",
                 "modalities": ["audio", "text"],
                 "temperature": 0.8,
                 "tool_choice": "auto",
@@ -252,25 +294,48 @@ class CallAgent(BaseAgent):
                 "conversation": arguments.get("conversation_context", ""),
                 "count": arguments.get("count", 3)
             }
-
+            self.logger.info(f"Event input: {event_input}")
             event_result = await self.event_agent.process(event_input)
+            self.logger.info(f"Event result: {event_result}")
 
             if event_result["success"]:
-                # イベント結果を整形
+                # イベント結果を整形（会話形式で自然に）
                 if event_result["events"]:
-                    events_text = "おすすめのイベントをご紹介します：\n\n"
-                    for i, event_info in enumerate(event_result["events"], 1):
-                        event = event_info["event"]
-                        reason = event_info["reason"]
-                        events_text += f"{i}. {event['title']}\n"
-                        events_text += f"   日時: {event['start_datetime']}\n"
-                        events_text += f"   場所: {event['prefecture']}{event['address_block']}\n"
-                        events_text += f"   内容: {event['description']}\n"
-                        events_text += f"   おすすめ理由: {reason}\n"
-                        events_text += f"   お問い合わせ: {event['contact_phone']}\n\n"
+                    # 最初のイベントをメインで紹介
+                    first_event = event_result["events"][0]
+                    event = first_event["event"]
+                    reason = first_event["reason"]
+
+                    # 日時をより自然な形式に変換
+                    from datetime import datetime
+                    try:
+                        dt = datetime.fromisoformat(event['start_datetime'])
+                        weekdays = ['月', '火', '水', '木', '金', '土', '日']
+                        weekday = weekdays[dt.weekday()]
+                        date_str = f"{dt.month}月{dt.day}日の{weekday}曜日、{'午前' if dt.hour < 12 else '午後'}{dt.hour if dt.hour <= 12 else dt.hour - 12}時"
+                        if dt.minute > 0:
+                            date_str += f"{dt.minute}分"
+                    except:
+                        date_str = event['start_datetime']
+
+                    events_text = f"来週の{date_str}から、"
+                    events_text += f"近くの{event['address_block']}で「{event['title']}」があるそうですよ。"
+                    if event['description']:
+                        events_text += f"{event['description']}みたいです。"
+
+                    events_text += f"\n\nお電話でのお問い合わせは、{event['contact_phone']}だそうです。"
+
+                    # 他にもイベントがある場合は簡単に触れる
+                    if len(event_result["events"]) > 1:
+                        events_text += "\n\n他にも、"
+                        # 2番目のみ簡単に紹介
+                        for event_info in event_result["events"][1:2]:
+                            other_event = event_info["event"]
+                            events_text += f"「{other_event['title']}」などもありますよ。"
+                            break
                 else:
                     events_text = event_result.get(
-                        "message", "申し訳ございませんが、現在おすすめできるイベントが見つかりませんでした。")
+                        "message", "申し訳ございませんが、今週は特にお知らせするイベントがないようです。")
 
                 # function call結果を送信
                 function_output = {
@@ -411,7 +476,8 @@ class CallAgent(BaseAgent):
     async def handle_interruption(self, audio_end_ms: int) -> None:
         """Handle interruption by truncating the current response"""
         if self.last_assistant_item and self.openai_ws:
-            self.logger.info(f"Truncating item {self.last_assistant_item} at {audio_end_ms}ms")
+            self.logger.info(
+                f"Truncating item {self.last_assistant_item} at {audio_end_ms}ms")
             truncate_event = {
                 "type": "conversation.item.truncate",
                 "item_id": self.last_assistant_item,

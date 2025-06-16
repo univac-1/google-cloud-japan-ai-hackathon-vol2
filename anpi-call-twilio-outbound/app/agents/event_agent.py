@@ -1,9 +1,12 @@
-import os
-from typing import Dict, Any, List
+import logging
+from typing import Dict, Any
 from agents.base_agent import BaseAgent
 from agents.event_selector_agent import EventSelectorAgent
-from models.schemas import User, Event
+from models.schemas import User
 from repositories.cloudsql_event_repository import CloudSQLEventRepository
+
+
+logger = logging.getLogger(__name__)
 
 
 class EventAgent(BaseAgent):

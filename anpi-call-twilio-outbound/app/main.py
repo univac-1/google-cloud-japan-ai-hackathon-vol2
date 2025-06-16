@@ -19,7 +19,7 @@ from models.server_event_types import ServerEventType
 
 # ログ設定 - デバッグレベルに変更
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -181,7 +181,8 @@ async def handle_media_stream(websocket: WebSocket, user_id: str = None):
                     # last_assistant_item is handled by CallAgent
 
                 elif data['event'] == 'stop':
-                    logger.info(f"Received stop event from Twilio - user hung up")
+                    logger.info(
+                        f"Received stop event from Twilio - user hung up")
                     is_running = False
                     break
 
@@ -250,8 +251,9 @@ async def handle_media_stream(websocket: WebSocket, user_id: str = None):
         # Calculate elapsed time and send truncate event to OpenAI
         if mark_queue and response_start_timestamp_twilio is not None and last_assistant_item:
             elapsed_time = latest_media_timestamp - response_start_timestamp_twilio
-            logger.info(f"Interrupting response. Elapsed time: {elapsed_time}ms, Item ID: {last_assistant_item}")
-            
+            logger.info(
+                f"Interrupting response. Elapsed time: {elapsed_time}ms, Item ID: {last_assistant_item}")
+
             # Send truncate event through CallAgent
             await call_agent.handle_interruption(elapsed_time)
 

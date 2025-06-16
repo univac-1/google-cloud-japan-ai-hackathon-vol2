@@ -34,9 +34,6 @@ raw_domain = os.getenv('DOMAIN', '')
 DOMAIN = re.sub(r'(^\w+:|^)\/\/|\/+$', '', raw_domain)
 PORT = int(os.getenv('PORT', 8080))
 
-# Global variable to store default user ID
-# TODO 実験用なのでいつか消す
-DEFAULT_USER_ID = None
 
 client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 app = FastAPI()
@@ -78,8 +75,7 @@ async def index_page():
 async def outbound_call_endpoint(request: OutboundCallRequest, http_request: Request):
     """API endpoint to initiate outbound calls"""
     try:
-        # Use user_id from request if provided, otherwise use default
-        user_id = request.user_id or DEFAULT_USER_ID
+        user_id = request.user_id
         # DOMAINが設定されている場合はそちらを優先、なければリクエストホストを使用
         if DOMAIN:
             host = DOMAIN
@@ -92,17 +88,20 @@ async def outbound_call_endpoint(request: OutboundCallRequest, http_request: Req
 
         logger.info(f"Making outbound call to {request.to_number}")
 
-        # Include user_id in the stream URL if available
-        stream_params = ""
+        # user_idは個別にパラメータとして渡さず、TwiMLのConnectでカスタムパラメータとして渡す
+
+        # TwiMLでuser_idをカスタムパラメータとして含める
+        stream_element = f'<Stream url="wss://{host}/media-stream"'
         if user_id:
-            stream_params = f"?user_id={user_id}"
+            stream_element += f'><Parameter name="user_id" value="{user_id}" /></Stream>'
+        else:
+            stream_element += ' />'
 
         call = client.calls.create(
             twiml=f'''<Response>
-                <Say voice="alice" language="ja-JP">こんにちは、AIアシスタントです。お話をお聞きします。</Say>
                 <Pause length="1"/>
                 <Connect>
-                    <Stream url="wss://{host}/media-stream{stream_params}" />
+                    {stream_element}
                 </Connect>
             </Response>''',
             to=request.to_number,
@@ -110,7 +109,7 @@ async def outbound_call_endpoint(request: OutboundCallRequest, http_request: Req
         )
 
         logger.info(f"Call initiated with SID: {call.sid}")
-        logger.info(f"WebSocket URL: wss://{host}/media-stream{stream_params}")
+        logger.info(f"WebSocket URL: wss://{host}/media-stream")
         if user_id:
             logger.info(f"Using user_id: {user_id}")
 
@@ -119,7 +118,8 @@ async def outbound_call_endpoint(request: OutboundCallRequest, http_request: Req
             "call_sid": call.sid,
             "to_number": request.to_number,
             "message": "Call initiated successfully",
-            "websocket_url": f"wss://{host}/media-stream"
+            "websocket_url": f"wss://{host}/media-stream",
+            "user_id": user_id
         }
 
     except Exception as e:
@@ -131,9 +131,10 @@ async def outbound_call_endpoint(request: OutboundCallRequest, http_request: Req
 
 
 @app.websocket("/media-stream")
-async def handle_media_stream(websocket: WebSocket, user_id: str = None):
+async def handle_media_stream(websocket: WebSocket):
     """Handle WebSocket connections between Twilio and OpenAI."""
     logger.info("WebSocket client connecting...")
+
     await websocket.accept()
     logger.info("WebSocket client connected successfully")
 
@@ -145,12 +146,10 @@ async def handle_media_stream(websocket: WebSocket, user_id: str = None):
     last_assistant_item = None
     is_running = True
 
-    # Create CallAgent instance with user_id from query params or default
-    effective_user_id = user_id or DEFAULT_USER_ID
-    if effective_user_id:
-        logger.info(f"Creating CallAgent with user_id: {effective_user_id}")
-    call_agent = CallAgent(
-        client_id=stream_sid or "twilio", user_id=effective_user_id)
+    # Create CallAgent instance - user_idは後でstartイベントで設定
+    call_agent = CallAgent()
+
+    # OpenAIに事前接続
     await call_agent.connect_to_openai()
     logger.info("CallAgent connected to OpenAI successfully")
 
@@ -178,7 +177,20 @@ async def handle_media_stream(websocket: WebSocket, user_id: str = None):
                         f"Incoming stream has started {stream_sid}")
                     response_start_timestamp_twilio = None
                     latest_media_timestamp = 0
-                    # last_assistant_item is handled by CallAgent
+
+                    user_id = None
+
+                    # TwiMLのカスタムパラメータからuser_idを取得
+                    if 'customParameters' in data['start']:
+                        custom_params = data['start']['customParameters']
+                        logger.info(f"Custom parameters: {custom_params}")
+                        if 'user_id' in custom_params:
+                            user_id = custom_params['user_id']
+                            logger.info(
+                                f"Found user_id in custom parameters: {user_id}")
+
+                    # 会話を開始（ユーザー情報設定と反映）
+                    await call_agent.start_conversation(user_id)
 
                 elif data['event'] == 'stop':
                     logger.info(
@@ -301,18 +313,23 @@ async def check_number_allowed(to: str) -> bool:
         return False
 
 
-async def make_call(to: str):
+async def make_call(to: str, user_id: str = None):
     """アウトバウンドコールを実行"""
     if not await check_number_allowed(to):
         raise ValueError(
             f"{to} は発信許可がありません。Twilio Dev PhoneまたはVerified Caller IDsに登録してください。")
 
     # TwiMLでMedia Streamを設定
+    stream_element = f'<Stream url="wss://{DOMAIN}/media-stream"'
+    if user_id:
+        stream_element += f'><Parameter name="user_id" value="{user_id}" /></Stream>'
+    else:
+        stream_element += ' />'
+
     twiml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<Response>'
-        '<Say>OK, please go ahead.</Say>'
-        f'<Connect><Stream url="wss://{DOMAIN}/media-stream" /></Connect>'
+        f'<Connect>{stream_element}</Connect>'
         '</Response>'
     )
 
@@ -328,6 +345,8 @@ async def make_call(to: str):
         print(f"   From: {PHONE_NUMBER_FROM}")
         print(f"   To: {to}")
         print(f"   Stream URL: wss://{DOMAIN}/media-stream")
+        if user_id:
+            print(f"   User ID: {user_id}")
 
     except Exception as e:
         logger.error(f"Error making call: {e}")
@@ -339,17 +358,14 @@ if __name__ == "__main__":
     parser.add_argument('--call', help="呼び出す番号をE.164形式で指定 (例: +8190xxxxxxxx)")
     parser.add_argument('--server-only', action='store_true',
                         help="サーバーのみを起動（発信は行わない）")
-    parser.add_argument('--default-user-id', help="デフォルトのユーザーID")
+    parser.add_argument('--user-id', help="通話で使用するユーザーID（動作確認用）")
     args = parser.parse_args()
-
-    # Set global DEFAULT_USER_ID from command line argument
-    DEFAULT_USER_ID = args.default_user_id
     # server-onlyでない場合は--callが必須
     if not args.server_only and not args.call:
         print("❌ --call オプションが必要です")
         print("   例: python main.py --call=+8190xxxxxxxx")
         print("   または: python main.py --server-only")
-        print("   デフォルトユーザーID指定: python main.py --server-only --default-user-id=user123")
+        print("   ユーザー指定: python main.py --call=+8190xxxxxxxx --user-id=user123")
         exit(1)
 
     # 設定確認
@@ -362,7 +378,8 @@ if __name__ == "__main__":
     print(f"   OPENAI_API_KEY: {'✅ 設定済み' if OPENAI_API_KEY else '❌ 未設定'}")
     print(f"   DOMAIN: {DOMAIN or '❌ 未設定'}")
     print(f"   PORT: {PORT}")
-    print(f"   DEFAULT_USER_ID: {DEFAULT_USER_ID or '未設定'}")
+    if args.user_id:
+        print(f"   USER_ID: {args.user_id}")
     print()
 
     if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, PHONE_NUMBER_FROM, OPENAI_API_KEY, DOMAIN]):
@@ -373,7 +390,7 @@ if __name__ == "__main__":
         # 発信処理（server-onlyオプションでない場合のみ）
         if not args.server_only:
             print(f"📞 発信を開始します: {args.call}")
-            asyncio.run(make_call(args.call))
+            asyncio.run(make_call(args.call, args.user_id))
             print("✅ 発信が完了しました")
 
         # サーバー起動

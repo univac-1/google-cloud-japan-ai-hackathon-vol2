@@ -143,6 +143,7 @@ async def handle_media_stream(websocket: WebSocket, user_id: str = None):
     mark_queue = []
     response_start_timestamp_twilio = None
     last_assistant_item = None
+    is_running = True
 
     # Create CallAgent instance with user_id from query params or default
     effective_user_id = user_id or DEFAULT_USER_ID
@@ -155,7 +156,7 @@ async def handle_media_stream(websocket: WebSocket, user_id: str = None):
 
     async def receive_from_twilio():
         """Receive audio data from Twilio and send it to the OpenAI Realtime API."""
-        nonlocal stream_sid, latest_media_timestamp
+        nonlocal stream_sid, latest_media_timestamp, is_running
         try:
             async for message in websocket.iter_text():
                 data = json.loads(message)
@@ -179,22 +180,27 @@ async def handle_media_stream(websocket: WebSocket, user_id: str = None):
                     latest_media_timestamp = 0
                     # last_assistant_item is handled by CallAgent
 
+                elif data['event'] == 'stop':
+                    logger.info(f"Received stop event from Twilio - user hung up")
+                    is_running = False
+                    break
+
                 elif data['event'] == 'mark':
                     if mark_queue:
                         mark_queue.pop(0)
 
         except WebSocketDisconnect:
             logger.info("Twilio WebSocket client disconnected.")
-            await call_agent.close()
+            is_running = False
         except Exception as e:
             logger.error(f"Error in receive_from_twilio: {e}")
-            await call_agent.close()
+            is_running = False
 
     async def send_to_twilio():
         """Receive events from the OpenAI Realtime API, send audio back to Twilio."""
-        nonlocal stream_sid, response_start_timestamp_twilio
+        nonlocal stream_sid, response_start_timestamp_twilio, is_running
         try:
-            while True:
+            while is_running:
                 # Get response from CallAgent
                 response = await call_agent.get_openai_response()
                 if response is None:

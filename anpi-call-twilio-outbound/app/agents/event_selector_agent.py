@@ -2,18 +2,17 @@ import logging
 import os
 from typing import Dict, Any
 from datetime import date
-from agents.base_agent import BaseAgent
 from models.schemas import User, Event
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
 
-class EventSelectorAgent(BaseAgent):
+class EventSelectorAgent:
     """イベント選定専門エージェント - OpenAI APIを使用"""
 
     def __init__(self):
-        super().__init__("イベント選定エージェント")
+        self.name = "イベント選定エージェント"
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.client = OpenAI(api_key=self.openai_api_key) if OpenAI else None
 

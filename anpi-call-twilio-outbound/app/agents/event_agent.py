@@ -1,6 +1,5 @@
 import logging
 from typing import Dict, Any
-from agents.base_agent import BaseAgent
 from agents.event_selector_agent import EventSelectorAgent
 from models.schemas import User
 from repositories.cloudsql_event_repository import CloudSQLEventRepository
@@ -9,11 +8,11 @@ from repositories.cloudsql_event_repository import CloudSQLEventRepository
 logger = logging.getLogger(__name__)
 
 
-class EventAgent(BaseAgent):
+class EventAgent:
     """高齢者におすすめのイベントを提案するエージェント"""
 
     def __init__(self, event_data_path: str = None, max_filter_count: int = 100):
-        super().__init__("イベント提案エージェント")
+        self.name = "イベント提案エージェント"
         self.event_selector = EventSelectorAgent()
         # CloudSQLEventRepositoryを使用
         self.event_repository = CloudSQLEventRepository()

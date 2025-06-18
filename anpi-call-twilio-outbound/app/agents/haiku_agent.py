@@ -1,14 +1,13 @@
 import os
 from typing import Dict, Any
-from agents.base_agent import BaseAgent
 from openai import OpenAI
 
 
-class HaikuAgent(BaseAgent):
+class HaikuAgent:
     """俳句を作成するエージェント"""
 
     def __init__(self):
-        super().__init__("俳句エージェント")
+        self.name = "俳句エージェント"
         if OpenAI:
             self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         else:

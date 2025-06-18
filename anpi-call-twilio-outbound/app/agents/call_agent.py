@@ -3,11 +3,10 @@ import json
 import base64
 import asyncio
 import logging
+from datetime import date
 from typing import Dict, Any, Optional
 import websockets
 from websockets.protocol import State
-from agents.base_agent import BaseAgent
-from agents.haiku_agent import HaikuAgent
 from agents.event_agent import EventAgent
 from models.openai_event_types import OpenAIEventType
 from models.server_event_types import ServerEventType
@@ -15,23 +14,91 @@ from repositories.cloudsql_user_repository import CloudSQLUserRepository
 from models.schemas import User
 
 
-class CallAgent(BaseAgent):
+logger = logging.getLogger(__name__)
+
+
+class CallAgent:
     """通話エージェント - OpenAI Realtime APIを使用"""
 
-    def __init__(self, client_id: str, user_id: Optional[str] = None):
-        super().__init__("通話エージェント")
-        self.client_id = client_id
-        self.user_id = user_id
+    # インストラクション生成用メソッド
+    def _generate_instructions(self) -> str:
+        """共通のインストラクションを生成"""
+        greeting = "「こんにちは。見守りのご連絡でお電話しました。今日もお元気でいらっしゃいますか？」から始める"
+        user_context = ""
+
+        if self.user:
+            greeting = f"「こんにちは、{self.user.last_name}さん。見守りのご連絡でお電話しました。今日もお元気でいらっしゃいますか？」から始める"
+
+            # 年齢を計算
+            age = None
+            if self.user.birth_date:
+                today = date.today()
+                age = today.year - self.user.birth_date.year
+                if (today.month, today.day) < (self.user.birth_date.month, self.user.birth_date.day):
+                    age -= 1
+
+            user_context = f"""
+        【ユーザー情報】
+        - お名前: {self.user.last_name} {self.user.first_name}様
+        - 年齢: {age}歳
+        - 性別: {'男性' if self.user.gender.value == 'male' else '女性'}
+        - 居住地: {self.user.prefecture}
+        """
+
+        return f"""あなたは高齢者の見守りサービスの通話エージェントです。
+
+                【目的】
+                - 高齢者の異常や困りごとに気づくこと
+                - 高齢者が孤立しないよう、会話を通じた心のケアを行うこと
+                - 自治体が提供するイベント情報を、無理なく案内すること
+
+                【会話のルール】
+                - 詰問や説教口調は避け、あたたかく丁寧な言葉づかいを使うこと
+                - 会話は一方的にならないよう、相手の返答を想定して区切ること
+                - 内容が機械的すぎたり、無感情にならないよう配慮すること
+                - 相手に何かを説明するときは、最初から長話をするのではなく、要点から初めて相手の反応を伺いながら必要な説明を追加していくこと
+
+                【会話の流れ（目安）】
+                1. あいさつと健康状態の確認
+                   - {greeting}
+                   - 体調や天候について軽く触れる
+                
+                2. 食事や生活の様子の話題
+                   - 食事内容や食欲について尋ねる
+                   - 水分補給や室温管理など、季節に応じた健康管理について話す
+                
+                3. ご近所や家族との交流確認
+                   - 最近の家族やご近所との交流について尋ねる
+                   - 孤立していないか、寂しさを感じていないか確認する
+                
+                4. 直近の地域イベントの案内
+                   - 会話の流れで自然にイベント情報を提供する
+                   - search_events関数を使って適切なイベントを検索する
+                   - 検索したイベント情報を長々と読上げるような退屈なことは絶対にせずに、相手の関心度を伺うこと
+                   - 相手が興味を示したイベントだけ、詳細を説明する
+                
+                5. しめくくり
+                   - 会話をユーモアを交えてまとめて、通話を終わりにする挨拶でしめる
+
+                {user_context}
+
+                【ツール使用ルール】
+                - イベントを探すときは、search_events関数でイベント情報を検索する
+                - ツール呼び出し前に「少々お待ちください」など一言添える"""
+
+    def __init__(self):
+        self.name = "通話エージェント"
+        self.user_id = None
         # CloudSQLUserRepositoryを使用
         self.user_repository = CloudSQLUserRepository()
         self.user: Optional[User] = None
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.openai_ws: Optional[Any] = None
-        self.haiku_agent = HaikuAgent()
         self.event_agent = EventAgent()
         self.conversation_history = []
         self.accumulated_audio = bytearray()
         self.session_ready = False
+        self.last_assistant_item = None
         self.logger = logging.getLogger(
             f"{__name__}.{self.__class__.__name__}")
 
@@ -39,16 +106,6 @@ class CallAgent(BaseAgent):
         """OpenAI Realtime APIに接続"""
         if not websockets:
             raise RuntimeError("websockets library not available")
-
-        # ユーザー情報を取得
-        if self.user_id and not self.user:
-            self.user = await self.user_repository.get_user_by_id(self.user_id)
-            if self.user:
-                self.logger.info(
-                    f"User data loaded for user_id: {self.user_id}")
-            else:
-                self.logger.warning(
-                    f"User not found for user_id: {self.user_id}")
 
         if not self.openai_ws or self.openai_ws.state == State.CLOSED:
             self.openai_ws = await websockets.connect(
@@ -61,87 +118,35 @@ class CallAgent(BaseAgent):
             await self._initialize_session()
 
     async def _initialize_session(self):
-        """OpenAIセッションの初期化"""
-        # ユーザー情報を含めたinstructionsを構築
-        user_context = ""
-        if self.user:
-            from datetime import date
-            # 年齢を計算
-            age = None
-            if self.user.birth_date:
-                today = date.today()
-                age = today.year - self.user.birth_date.year
-                if (today.month, today.day) < (self.user.birth_date.month, self.user.birth_date.day):
-                    age -= 1
-
-            user_context = f"""
-                【ユーザー情報】
-                - お名前: {self.user.last_name} {self.user.first_name}様
-                - 年齢: {age}歳
-                - 性別: {'男性' if self.user.gender.value == 'male' else '女性'}
-                - 居住地: {self.user.prefecture}
-                
-                この情報を踏まえて、より親身で適切な対応を心がけてください。
-                """
-
+        """OpenAIセッションの初期化（ベース設定）"""
         session_config = {
             "type": "session.update",
             "session": {
                 "turn_detection": {
                     "type": "server_vad",
                     "threshold": 0.3,
-                    "prefix_padding_ms": 300,
-                    "silence_duration_ms": 2000
+                    "prefix_padding_ms": 500,
+                    "silence_duration_ms": 3000
                 },
                 "input_audio_format": "g711_ulaw",
                 "output_audio_format": "g711_ulaw",
                 "input_audio_transcription": {"model": "whisper-1"},
                 "voice": "alloy",
-                "instructions": f"""あなたは高齢者の話し相手をする優しいAIアシスタントです。
-                相手に寄り添い、相手を楽しませることを心がけてください。
-                会話を終える際は、次の会話が楽しみになるような一言を添えて挨拶してください。
-                {user_context}
-                【ツール使用ルール】
-                - 俳句をリクエストされた場合（「何か詠んで」「俳句を詠んで」「詩を聞かせて」「一句お願い」など）は、request_haiku関数を呼び出してください。
-                - イベントについて聞かれた場合（「何かイベントはない？」「参加できる催し物は？」「どんな活動がある？」「おすすめのイベント」など）は、recommend_events関数を呼び出してください。
-                - 該当する要求があった場合のみ適切な関数を呼び出し、それ以外は通常の会話を行ってください。""",
+                "instructions": self._generate_instructions(),
                 "modalities": ["audio", "text"],
                 "temperature": 0.8,
                 "tool_choice": "auto",
                 "tools": [
                     {
-                        "name": "request_haiku",
+                        "name": "search_events",
                         "type": "function",
-                        "description": "俳句の作成を専門エージェントに依頼します",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "context": {
-                                    "type": "string",
-                                    "description": "俳句を詠むための文脈"
-                                }
-                            },
-                            "required": ["context"],
-                            "additionalProperties": False
-                        }
-                    },
-                    {
-                        "name": "recommend_events",
-                        "type": "function",
-                        "description": "高齢者におすすめのイベントを提案します",
+                        "description": "高齢者におすすめのイベント情報を検索し、会話コンテキストに追加します",
                         "parameters": {
                             "type": "object",
                             "properties": {
                                 "conversation_context": {
                                     "type": "string",
                                     "description": "これまでの会話の内容や興味のある分野"
-                                },
-                                "count": {
-                                    "type": "integer",
-                                    "description": "提案するイベント数（1-5件）",
-                                    "minimum": 1,
-                                    "maximum": 5,
-                                    "default": 3
                                 }
                             },
                             "required": ["conversation_context"],
@@ -196,36 +201,10 @@ class CallAgent(BaseAgent):
 
     async def _handle_function_call(self, function_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """ツール呼び出しの処理"""
-        if function_name == "request_haiku":
-            # 俳句エージェントに処理を委譲
-            haiku_result = await self.haiku_agent.process(arguments)
-
-            if haiku_result["success"]:
-                # function call結果を送信
-                function_output = {
-                    "type": "conversation.item.create",
-                    "item": {
-                        "type": "function_call_output",
-                        "call_id": arguments.get("call_id"),
-                        "output": haiku_result["haiku"]
-                    }
-                }
-                await self.openai_ws.send(json.dumps(function_output))
-
-                # 新しいレスポンスを生成（音声を含む）
-                await self.openai_ws.send(json.dumps({
-                    "type": "response.create",
-                    "response": {
-                        "modalities": ["audio", "text"]
-                    }
-                }))
-
-            return haiku_result
-
-        elif function_name == "recommend_events":
-            # イベント提案エージェントに処理を委譲
+        if function_name == "search_events":
+            # イベント検索エージェントに処理を委譲
             if not self.user:
-                error_message = "ユーザー情報が設定されていないため、イベントを提案できません"
+                error_message = "ユーザー情報が設定されていないため、イベントを検索できません"
                 function_output = {
                     "type": "conversation.item.create",
                     "item": {
@@ -249,40 +228,65 @@ class CallAgent(BaseAgent):
             event_input = {
                 "user": self.user.model_dump(),
                 "conversation": arguments.get("conversation_context", ""),
-                "count": arguments.get("count", 3)
+                "count": 3
             }
 
             event_result = await self.event_agent.process(event_input)
 
-            if event_result["success"]:
-                # イベント結果を整形
-                if event_result["events"]:
-                    events_text = "おすすめのイベントをご紹介します：\n\n"
-                    for i, event_info in enumerate(event_result["events"], 1):
-                        event = event_info["event"]
-                        reason = event_info["reason"]
-                        events_text += f"{i}. {event['title']}\n"
-                        events_text += f"   日時: {event['start_datetime']}\n"
-                        events_text += f"   場所: {event['prefecture']}{event['address_block']}\n"
-                        events_text += f"   内容: {event['description']}\n"
-                        events_text += f"   おすすめ理由: {reason}\n"
-                        events_text += f"   お問い合わせ: {event['contact_phone']}\n\n"
-                else:
-                    events_text = event_result.get(
-                        "message", "申し訳ございませんが、現在おすすめできるイベントが見つかりませんでした。")
+            if event_result["success"] and event_result["events"]:
+                # イベント情報をシンプルなJSON形式に整形
+                events_json = []
+                for event_info in event_result["events"]:
+                    event = event_info["event"]
 
-                # function call結果を送信
+                    # 日時を文字列に変換
+                    start_datetime = event['start_datetime']
+                    if hasattr(start_datetime, 'strftime'):
+                        date_str = start_datetime.strftime('%Y年%m月%d日 %H:%M')
+                    else:
+                        date_str = str(start_datetime)
+
+                    events_json.append({
+                        "タイトル": event['title'],
+                        "日時": date_str,
+                        "場所": event['address_block'],
+                        "内容": event['description'],
+                        "電話": event['contact_phone']
+                    })
+
+                context_message = f"おすすめイベント: {json.dumps(events_json, ensure_ascii=False)}"
+
+                # function call結果を送信（会話履歴に追加）
                 function_output = {
                     "type": "conversation.item.create",
                     "item": {
                         "type": "function_call_output",
                         "call_id": arguments.get("call_id"),
-                        "output": events_text
+                        "output": context_message
                     }
                 }
                 await self.openai_ws.send(json.dumps(function_output))
 
-                # 新しいレスポンスを生成（音声を含む）
+                # AIに自然な形でイベントを紹介するよう指示
+                await self.openai_ws.send(json.dumps({
+                    "type": "response.create",
+                    "response": {
+                        "modalities": ["audio", "text"],
+                        "instructions": "イベントの検索結果について、簡単な要約をユーザに伝えてください。ただし、相手はイベントに関心があるとは限らないので、イベント情報を長々と読上げることは絶対にしないでください。"
+                    }
+                }))
+            else:
+                # イベントが見つからない場合
+                function_output = {
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "function_call_output",
+                        "call_id": arguments.get("call_id"),
+                        "output": "現在、お住まいの地域で開催予定のイベントが見つかりませんでした。"
+                    }
+                }
+                await self.openai_ws.send(json.dumps(function_output))
+
                 await self.openai_ws.send(json.dumps({
                     "type": "response.create",
                     "response": {
@@ -300,7 +304,6 @@ class CallAgent(BaseAgent):
 
         # Basic event type logging
         extra_info = {
-            "client_id": self.client_id,
             "event_type": event_type
         }
 
@@ -332,6 +335,8 @@ class CallAgent(BaseAgent):
             # TODO 話者の文字起こし完了.録音機能で実装
 
         elif event_type == OpenAIEventType.RESPONSE_DONE:
+            # Reset last_assistant_item when response is complete
+            self.last_assistant_item = None
             return {
                 "type": ServerEventType.RESPONSE_DONE
             }
@@ -342,10 +347,16 @@ class CallAgent(BaseAgent):
                 audio_chunk = base64.b64decode(delta)
                 self.accumulated_audio.extend(audio_chunk)
 
+                # Track last assistant item for interruption handling
+                item_id = event.get('item_id')
+                if item_id:
+                    self.last_assistant_item = item_id
+
                 return {
                     "type": ServerEventType.AUDIO,
                     "audio": delta,
-                    "format": "g711_ulaw"
+                    "format": "g711_ulaw",
+                    "item_id": item_id
                 }
 
         elif event_type == OpenAIEventType.RESPONSE_AUDIO_DONE:
@@ -370,6 +381,13 @@ class CallAgent(BaseAgent):
                     "transcript": transcript
                 }
 
+        elif event_type == OpenAIEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED:
+            # Handle speech started event for interruption
+            return {
+                "type": ServerEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED,
+                "last_assistant_item": self.last_assistant_item
+            }
+
         elif event_type == OpenAIEventType.CONVERSATION_ITEM_INPUT_AUDIO_TRANSCRIPTION_DELTA:
             # TODO 録音機能で実装
             transcript_delta = event.get("delta", "")
@@ -392,17 +410,48 @@ class CallAgent(BaseAgent):
 
         return None
 
+    async def handle_interruption(self, audio_end_ms: int) -> None:
+        """Handle interruption by truncating the current response"""
+        if self.last_assistant_item and self.openai_ws:
+            self.logger.info(
+                f"Truncating item {self.last_assistant_item} at {audio_end_ms}ms")
+            truncate_event = {
+                "type": "conversation.item.truncate",
+                "item_id": self.last_assistant_item,
+                "content_index": 0,
+                "audio_end_ms": audio_end_ms
+            }
+            await self.openai_ws.send(json.dumps(truncate_event))
+            self.last_assistant_item = None
+
+    async def start_conversation(self, user_id: Optional[str] = None):
+        """会話を開始（ユーザー情報を設定してセッションを更新）"""
+        if user_id:
+            self.user_id = user_id
+            # ユーザー情報を取得
+            self.user = await self.user_repository.get_user_by_id(user_id)
+            if self.user:
+                self.logger.info(f"User data loaded for user_id: {user_id}")
+                # ユーザー情報を含むinstructionsの差分更新
+                await self._update_user_context()
+            else:
+                self.logger.warning(f"User not found for user_id: {user_id}")
+
+    async def _update_user_context(self):
+        """ユーザー情報を含むinstructionsの差分更新"""
+        if not self.user:
+            return
+
+        # instructionsの差分更新のみ
+        session_update = {
+            "type": "session.update",
+            "session": {
+                "instructions": self._generate_instructions()
+            }
+        }
+        await self.openai_ws.send(json.dumps(session_update))
+
     async def close(self):
         """接続をクローズ"""
         if self.openai_ws and self.openai_ws.state != State.CLOSED:
             await self.openai_ws.close()
-
-    async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """エージェントの処理を実行（基底クラスの実装）"""
-        # この実装は主にWebSocketコントローラーから直接メソッドを呼ぶため、
-        # ここでは簡単な実装のみ
-        return {
-            "success": True,
-            "agent": self.name,
-            "message": "Call agent is ready for WebSocket communication"
-        }

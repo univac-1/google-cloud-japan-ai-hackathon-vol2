@@ -1,20 +1,23 @@
+import logging
 import os
-from typing import Dict, Any, List
+from typing import Dict, Any
 from datetime import date
-from agents.base_agent import BaseAgent
 from models.schemas import User, Event
 from openai import OpenAI
 
+logger = logging.getLogger(__name__)
 
-class EventSelectorAgent(BaseAgent):
+
+class EventSelectorAgent:
     """イベント選定専門エージェント - OpenAI APIを使用"""
 
     def __init__(self):
-        super().__init__("イベント選定エージェント")
+        self.name = "イベント選定エージェント"
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.client = OpenAI(api_key=self.openai_api_key) if OpenAI else None
 
     async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        logger.info(f"Event selector input: {input_data}")
         """
         高齢者の好みに合うイベントを選定する
 
@@ -124,6 +127,7 @@ class EventSelectorAgent(BaseAgent):
                                 "reason": reason.strip()
                             })
                             added_event_ids.add(event_id)
+            logger.info(f"Event selector result: {selected_events}")
 
             return {
                 "success": True,

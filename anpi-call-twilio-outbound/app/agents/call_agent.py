@@ -52,10 +52,11 @@ class CallAgent:
                 - 高齢者が孤立しないよう、会話を通じた心のケアを行うこと
                 - 自治体が提供するイベント情報を、無理なく案内すること
 
-                【会話スタイル】
+                【会話のルール】
                 - 詰問や説教口調は避け、あたたかく丁寧な言葉づかいを使うこと
                 - 会話は一方的にならないよう、相手の返答を想定して区切ること
                 - 内容が機械的すぎたり、無感情にならないよう配慮すること
+                - 相手に何かを説明するときは、最初から長話をするのではなく、要点から初めて相手の反応を伺いながら必要な説明を追加していくこと
 
                 【会話の流れ（目安）】
                 1. あいさつと健康状態の確認
@@ -73,7 +74,8 @@ class CallAgent:
                 4. 直近の地域イベントの案内
                    - 会話の流れで自然にイベント情報を提供する
                    - search_events関数を使って適切なイベントを検索する
-                   - イベント紹介で相手を退屈させないように、ユーザーが興味を示したときだけ、会話履歴から詳細内容を説明する
+                   - 検索したイベント情報を長々と読上げるような退屈なことは絶対にせずに、相手の関心度を伺うこと
+                   - 相手が興味を示したイベントだけ、詳細を説明する
                 
                 5. しめくくり
                    - 会話をユーモアを交えてまとめて、通話を終わりにする挨拶でしめる
@@ -82,7 +84,7 @@ class CallAgent:
 
                 【ツール使用ルール】
                 - イベントを探すときは、search_events関数でイベント情報を検索する
-                - ツール呼び出し前に「少々お待ちください」など一言添える""",
+                - ツール呼び出し前に「少々お待ちください」など一言添える"""
 
     def __init__(self):
         self.name = "通話エージェント"
@@ -145,13 +147,6 @@ class CallAgent:
                                 "conversation_context": {
                                     "type": "string",
                                     "description": "これまでの会話の内容や興味のある分野"
-                                },
-                                "count": {
-                                    "type": "integer",
-                                    "description": "検索するイベント数（1-5件）",
-                                    "minimum": 1,
-                                    "maximum": 5,
-                                    "default": 3
                                 }
                             },
                             "required": ["conversation_context"],
@@ -233,7 +228,7 @@ class CallAgent:
             event_input = {
                 "user": self.user.model_dump(),
                 "conversation": arguments.get("conversation_context", ""),
-                "count": arguments.get("count", 3)
+                "count": 3
             }
 
             event_result = await self.event_agent.process(event_input)
@@ -243,9 +238,17 @@ class CallAgent:
                 events_json = []
                 for event_info in event_result["events"]:
                     event = event_info["event"]
+
+                    # 日時を文字列に変換
+                    start_datetime = event['start_datetime']
+                    if hasattr(start_datetime, 'strftime'):
+                        date_str = start_datetime.strftime('%Y年%m月%d日 %H:%M')
+                    else:
+                        date_str = str(start_datetime)
+
                     events_json.append({
                         "タイトル": event['title'],
-                        "日時": event['start_datetime'],
+                        "日時": date_str,
                         "場所": event['address_block'],
                         "内容": event['description'],
                         "電話": event['contact_phone']
@@ -269,7 +272,7 @@ class CallAgent:
                     "type": "response.create",
                     "response": {
                         "modalities": ["audio", "text"],
-                        "instructions": "調査したイベント情報を踏まえて、調査の概要を簡潔に紹介してください。相手が興味を示したときだけ詳細を説明してください。"
+                        "instructions": "イベントの検索結果について、簡単な要約をユーザに伝えてください。ただし、相手はイベントに関心があるとは限らないので、イベント情報を長々と読上げることは絶対にしないでください。"
                     }
                 }))
             else:

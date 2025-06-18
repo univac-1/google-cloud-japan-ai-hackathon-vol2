@@ -169,7 +169,7 @@ python main.py --server-only
 # 4. ターミナル3: テスト発信
 curl -X POST http://localhost:8080/outbound-call \
   -H "Content-Type: application/json" \
-  -d '{"to_number":"+81901234567", "user_id": "<userid:eab491ac-440a-11f0-b4fe-42010a40000a>"}'
+  -d '{"to_number":"+81901234567", "user_id": "<userid:4CC0CA6A-657C-4253-99FF-C19219D30AE2>"}'
 ```
 
 ## システム構成

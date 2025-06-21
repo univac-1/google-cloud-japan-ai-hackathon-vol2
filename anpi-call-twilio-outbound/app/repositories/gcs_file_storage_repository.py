@@ -6,8 +6,10 @@ from typing import Optional, Dict, Any
 from google.cloud import storage
 from google.cloud.exceptions import NotFound
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 from .file_storage_repository import FileMetadata
+from models.transcription import TranscriptionMessage, TranscriptionData
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +33,7 @@ class GCSFileStorageRepository:
         # 通話データの管理
         self.user_id: Optional[str] = None
         self.call_started_at = datetime.now()
-        self.transcriptions = []
+        self.transcriptions: list[TranscriptionMessage] = []
         self.message_count = 0
         self.auto_save_interval = auto_save_interval
         self.last_saved_at: Optional[datetime] = None
@@ -59,11 +61,11 @@ class GCSFileStorageRepository:
         Returns:
             bool: 自動保存が実行されたかどうか
         """
-        transcription = {
-            "speaker": speaker,
-            "text": text,
-            "timestamp": datetime.now().isoformat()
-        }
+        transcription = TranscriptionMessage(
+            speaker=speaker,
+            text=text,
+            timestamp=datetime.now()
+        )
         
         self.transcriptions.append(transcription)
         self.message_count += 1
@@ -103,21 +105,21 @@ class GCSFileStorageRepository:
             # フォーマットされたテキストを生成
             formatted_text = []
             for item in self.transcriptions:
-                speaker = "ユーザー" if item["speaker"] == "user" else "エージェント"
-                formatted_text.append(f"{speaker}: {item['text']}")
+                speaker = "ユーザー" if item.speaker == "user" else "エージェント"
+                formatted_text.append(f"{speaker}: {item.text}")
             
-            # データの準備
-            data = {
-                'user_id': self.user_id,
-                'call_started_at': self.call_started_at.isoformat(),
-                'saved_at': datetime.now().isoformat(),
-                'is_final': is_final,
-                'message_count': self.message_count,
-                'transcriptions': self.transcriptions,
-                'formatted_text': "\n".join(formatted_text)
-            }
+            # Pydanticモデルでデータを構造化
+            transcription_data = TranscriptionData(
+                user_id=self.user_id,
+                call_started_at=self.call_started_at,
+                saved_at=datetime.now(),
+                is_final=is_final,
+                message_count=self.message_count,
+                transcriptions=self.transcriptions,
+                formatted_text="\n".join(formatted_text)
+            )
             
-            content = json.dumps(data, ensure_ascii=False, indent=2).encode('utf-8')
+            content = transcription_data.model_dump_json(ensure_ascii=False, indent=2).encode('utf-8')
             
             # ファイルパスを生成
             if self.user_id:

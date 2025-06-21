@@ -1,15 +1,15 @@
 import os
 import json
 import logging
+import asyncio
 from datetime import datetime
 from typing import Optional, Dict, Any
+from concurrent.futures import ThreadPoolExecutor
 from google.cloud import storage
 from google.cloud.exceptions import NotFound
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
 
-from .file_storage_repository import FileMetadata
 from models.transcription import TranscriptionMessage, TranscriptionData
+from utils.json_serializer import datetime_serializer
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +83,7 @@ class GCSFileStorageRepository:
         
         return False
 
-    async def _save(self, is_final: bool = False) -> FileMetadata:
+    async def _save(self, is_final: bool = False) -> str:
         """
         現在のデータをGCSに保存
 
@@ -91,7 +91,7 @@ class GCSFileStorageRepository:
             is_final: 最終保存かどうか
 
         Returns:
-            FileMetadata: 保存されたファイルのメタデータ
+            str: 保存されたファイルのGCSパス
         """
         try:
             # 保存回数をインクリメント
@@ -119,7 +119,15 @@ class GCSFileStorageRepository:
                 formatted_text="\n".join(formatted_text)
             )
             
-            content = transcription_data.model_dump_json(ensure_ascii=False, indent=2).encode('utf-8')
+            # JSON文字列を生成してUTF-8でエンコード
+            # Pydanticのmodel_dump_json()はデフォルトでASCIIエンコーディングを使用するため
+            # 日本語が文字化けする。そのため、model_dump()してからjson.dumps()を使用
+            content = json.dumps(
+                transcription_data.model_dump(),
+                ensure_ascii=False,
+                indent=2,
+                default=datetime_serializer
+            ).encode('utf-8')
             
             # ファイルパスを生成
             if self.user_id:
@@ -136,23 +144,14 @@ class GCSFileStorageRepository:
                 content
             )
             
-            # メタデータを作成
-            file_metadata = FileMetadata(
-                filename=filename,
-                user_id=self.user_id,
-                created_at=self.call_started_at,
-                updated_at=datetime.now(),
-                file_type='json',
-                file_size=len(content),
-                file_path=f"gs://{self.bucket_name}/{file_path}",
-                metadata={}  # 空にする
-            )
-            
             # 最後の保存時刻を更新
             self.last_saved_at = datetime.now()
             
+            # GCSパスを生成
+            gcs_path = f"gs://{self.bucket_name}/{file_path}"
+            
             self.logger.info(f"文字起こしをGCSに保存しました: {filename} (is_final: {is_final})")
-            return file_metadata
+            return gcs_path
             
         except Exception as e:
             self.logger.error(f"GCS保存エラー: {e}", exc_info=True)
@@ -162,7 +161,7 @@ class GCSFileStorageRepository:
     def _upload_file_sync(self, blob_name: str, content: bytes):
         """同期的にファイルをアップロード"""
         blob = self.bucket.blob(blob_name)
-        blob.upload_from_string(content)
+        blob.upload_from_string(content, content_type='application/json; charset=utf-8')
 
     async def close(self):
         """リソースをクリーンアップ"""

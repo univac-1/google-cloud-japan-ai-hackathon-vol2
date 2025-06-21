@@ -22,7 +22,8 @@ class TranscriptionData(BaseModel):
     transcriptions: List[TranscriptionMessage] = Field(..., description="文字起こしデータのリスト")
     formatted_text: str = Field(..., description="整形されたテキスト")
     
-    class Config:
-        json_encoders = {
+    model_config = {
+        "json_encoders": {
             datetime: lambda v: v.isoformat()
         }
+    }

@@ -3,7 +3,7 @@ import json
 import logging
 from flask import Request, jsonify
 from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail, Email, To, Content
+from sendgrid.helpers.mail import Mail, Email, To, Content, MailSettings, SandBoxMode
 
 # ログ設定
 logging.basicConfig(level=logging.INFO)
@@ -65,8 +65,8 @@ def send_email(request: Request):
                 'success': False
             }), 400, headers
 
-        # 必須パラメータの検証
-        required_fields = ['to_email', 'subject', 'content']
+        # 必須パラメータの検証（送信先のアドレスのみ）
+        required_fields = ['to_email']
         missing_fields = [field for field in required_fields if not request_json.get(field)]
         
         if missing_fields:
@@ -75,13 +75,25 @@ def send_email(request: Request):
                 'success': False
             }), 400, headers
 
-        # メールパラメータを取得
+        # メールパラメータを取得（送信先以外は固定値）
         to_email = request_json['to_email']
-        to_name = request_json.get('to_name', to_email)
-        subject = request_json['subject']
-        content = request_json['content']
-        from_email = request_json.get('from_email', os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@example.com'))
-        from_name = request_json.get('from_name', os.environ.get('DEFAULT_FROM_NAME', 'System'))
+        to_name = request_json.get('to_name', 'お客様')
+        subject = request_json.get('subject', '【AnpiCall】安否確認システムからのお知らせ')
+        content = request_json.get('content', '''
+            <html>
+            <head><title>安否確認システム</title></head>
+            <body>
+                <h2>🚨 安否確認システムからのお知らせ</h2>
+                <p>お疲れ様です。</p>
+                <p>これは安否確認システム（AnpiCall）からの自動送信メールです。</p>
+                <p>現在のシステム状況：<strong>正常稼働中</strong></p>
+                <hr>
+                <p><small>このメールは自動送信されています。返信の必要はありません。</small></p>
+            </body>
+            </html>
+        ''')
+        from_email = request_json.get('from_email', os.environ.get('DEFAULT_FROM_EMAIL', 'thistle0420@gmail.com'))
+        from_name = request_json.get('from_name', os.environ.get('DEFAULT_FROM_NAME', 'AnpiCall安否確認システム'))
 
         # メールオブジェクトを作成
         from_email_obj = Email(from_email, from_name)
@@ -94,6 +106,11 @@ def send_email(request: Request):
             subject=subject,
             html_content=content_obj
         )
+        
+        # Sandbox Mode の設定（環境変数で制御）
+        sandbox_enabled = os.environ.get('SENDGRID_SANDBOX_MODE', 'true').lower() == 'true'
+        if sandbox_enabled:
+            mail.mail_settings = MailSettings(sandbox_mode=SandBoxMode(enable=True))
 
         # SendGrid APIクライアントを初期化
         sg = SendGridAPIClient(api_key)

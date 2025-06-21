@@ -18,6 +18,7 @@ from typing import Optional
 from agents.call_agent import CallAgent
 from models.server_event_types import ServerEventType
 from analysis.detect_anomaly import AnomalyDetector
+from analysis.check_call import CallChecker
 from repositories.firestore_anomaly_repository import FirestoreAnomalyRepository
 from repositories.webhook_notification_repository import WebhookNotificationRepository
 
@@ -137,48 +138,39 @@ async def outbound_call_endpoint(request: OutboundCallRequest, http_request: Req
             "error": str(e)
         }
 
+# client向けパス
 
-@app.post("/conversation/check")
-async def check_conversation_anomaly(request: ConversationCheckRequest):
-    """会話内容から異常兆候を検出"""
+
+@app.post("/client/call/check")
+async def check_call_content(request: ConversationCheckRequest):
+    """通話内容をチェック（クライアント向け）"""
     try:
-        # AnomalyDetectorで分析実行
-        detector = AnomalyDetector()
-        result = await detector.detect_anomaly(request.user_id)
+        checker = CallChecker()
         
-        logger.info(f"会話異常検出完了 user_id: {request.user_id}, has_anomaly: {result.has_anomaly}")
-        
-        # Firestoreに結果を保存
-        firestore_repo = FirestoreAnomalyRepository()
-        record_id = await firestore_repo.save_result(request.user_id, result)
-        
-        # 異常が検出された場合は通知を送信
-        notification_result = None
-        if result.has_anomaly:
-            notification_repo = WebhookNotificationRepository()
-            notification_result = await notification_repo.send_anomaly_notification(request.user_id, result)
-            logger.info(f"異常通知送信結果 user_id: {request.user_id}, success: {notification_result.get('success', False)}")
+        # 特定ユーザーのチェック（自動保存付き）
+        result, check_id = await checker.check_user_calls(request.user_id)
+        logger.info(f"通話チェック完了 user_id: {request.user_id}, has_issue: {result.has_issue}, check_id: {check_id}")
         
         return {
             "success": True,
             "user_id": request.user_id,
-            "record_id": record_id,
-            "analysis_result": result.model_dump(),
-            "notification_result": notification_result
+            "check_id": check_id,
+            "check_result": result.model_dump()
         }
-        
+
     except Exception as e:
-        logger.error(f"会話異常検出エラー user_id: {request.user_id}, error: {e}", exc_info=True)
+        logger.error(f"通話チェックエラー user_id: {request.user_id}, error: {e}", exc_info=True)
         return {
             "success": False,
             "user_id": request.user_id,
             "error": str(e),
-            "analysis_result": {
-                "has_anomaly": False,
-                "reason": f"分析中にエラーが発生しました: {str(e)}",
+            "check_result": {
+                "has_issue": False,
+                "reason": f"チェック中にエラーが発生しました: {str(e)}",
                 "confidence": 0.0,
                 "detected_issues": [],
-                "source_files": []
+                "analyzed_calls": [],
+                "sources": []
             }
         }
 

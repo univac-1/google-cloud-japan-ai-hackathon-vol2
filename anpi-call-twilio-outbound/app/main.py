@@ -5,7 +5,7 @@ import base64
 import asyncio
 import argparse
 import re
-from fastapi import FastAPI, WebSocket, Request
+from fastapi import FastAPI, WebSocket, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.websockets import WebSocketDisconnect
 from twilio.rest import Client
@@ -14,8 +14,10 @@ from dotenv import load_dotenv
 import uvicorn
 import logging
 from pydantic import BaseModel
+from typing import Optional
 from agents.call_agent import CallAgent
 from models.server_event_types import ServerEventType
+from analysis.detect_anomaly import AnomalyDetector
 
 # ログ設定 - デバッグレベルに変更
 logging.basicConfig(
@@ -64,6 +66,10 @@ class OutboundCallRequest(BaseModel):
     to_number: str
     message: str = None
     user_id: str = None
+
+
+class ConversationCheckRequest(BaseModel):
+    user_id: str
 
 
 @app.get('/', response_class=JSONResponse)
@@ -127,6 +133,38 @@ async def outbound_call_endpoint(request: OutboundCallRequest, http_request: Req
         return {
             "success": False,
             "error": str(e)
+        }
+
+
+@app.post("/conversation/check")
+async def check_conversation_anomaly(request: ConversationCheckRequest):
+    """会話内容から異常兆候を検出"""
+    try:
+        # AnomalyDetectorで分析実行
+        detector = AnomalyDetector()
+        result = await detector.detect_anomaly(request.user_id)
+        
+        logger.info(f"会話異常検出完了 user_id: {request.user_id}, has_anomaly: {result.has_anomaly}")
+        
+        return {
+            "success": True,
+            "user_id": request.user_id,
+            "analysis_result": result.model_dump()
+        }
+        
+    except Exception as e:
+        logger.error(f"会話異常検出エラー user_id: {request.user_id}, error: {e}", exc_info=True)
+        return {
+            "success": False,
+            "user_id": request.user_id,
+            "error": str(e),
+            "analysis_result": {
+                "has_anomaly": False,
+                "reason": f"分析中にエラーが発生しました: {str(e)}",
+                "confidence": 0.0,
+                "detected_issues": [],
+                "source_files": []
+            }
         }
 
 

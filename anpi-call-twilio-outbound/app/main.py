@@ -226,8 +226,9 @@ async def handle_media_stream(websocket: WebSocket):
 
                 elif data['event'] == 'start':
                     stream_sid = data['start']['streamSid']
+                    call_sid = data['start'].get('callSid')
                     logger.info(
-                        f"Incoming stream has started {stream_sid}")
+                        f"Incoming stream has started {stream_sid}, call_sid: {call_sid}")
                     response_start_timestamp_twilio = None
                     latest_media_timestamp = 0
 
@@ -243,7 +244,7 @@ async def handle_media_stream(websocket: WebSocket):
                                 f"Found user_id in custom parameters: {user_id}")
 
                     # 会話を開始（ユーザー情報設定と反映）
-                    await call_agent.start_conversation(user_id)
+                    await call_agent.start_conversation(user_id, call_sid)
 
                 elif data['event'] == 'stop':
                     logger.info(

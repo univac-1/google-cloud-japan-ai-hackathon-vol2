@@ -10,7 +10,7 @@ from google.cloud import storage
 from google.cloud.exceptions import NotFound
 from pydantic import BaseModel
 
-from models.transcription import TranscriptionData
+from models.transcription import TranscriptionMessage
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +148,7 @@ class AnomalyDetector:
             self.logger.error(f"ファイル一覧取得エラー user_id: {user_id}, error: {e}")
             return []
 
-    async def _download_file_content(self, blob_name: str) -> Optional[TranscriptionData]:
+    async def _download_file_content(self, blob_name: str) -> Optional[Dict[str, Any]]:
         """GCSからファイル内容をダウンロードして解析"""
         try:
             blob = self.bucket.blob(blob_name)
@@ -157,16 +157,13 @@ class AnomalyDetector:
             # JSONをパース
             data = json.loads(content)
             
-            # Pydanticモデルに変換
-            transcription_data = TranscriptionData.model_validate(data)
-            
-            return transcription_data
+            return data
             
         except Exception as e:
             self.logger.error(f"ファイル読み込みエラー blob: {blob_name}, error: {e}")
             return None
 
-    async def _analyze_with_openai(self, transcription_data_list: List[TranscriptionData]) -> Dict[str, Any]:
+    async def _analyze_with_openai(self, transcription_data_list: List[Dict[str, Any]]) -> Dict[str, Any]:
         """OpenAI GPT-4o-miniで通話内容を分析"""
         try:
             # 分析用のプロンプトを作成
@@ -220,7 +217,7 @@ class AnomalyDetector:
                 "detected_issues": []
             }
 
-    def _create_analysis_prompt(self, transcription_data_list: List[TranscriptionData]) -> str:
+    def _create_analysis_prompt(self, transcription_data_list: List[Dict[str, Any]]) -> str:
         """分析用のプロンプトを作成"""
         # 通話開始日時でグループ化
         calls_by_datetime = {}

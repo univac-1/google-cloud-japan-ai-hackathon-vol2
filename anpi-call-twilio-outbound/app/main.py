@@ -5,7 +5,7 @@ import base64
 import asyncio
 import argparse
 import re
-from fastapi import FastAPI, WebSocket, Request
+from fastapi import FastAPI, WebSocket, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.websockets import WebSocketDisconnect
 from twilio.rest import Client
@@ -14,8 +14,10 @@ from dotenv import load_dotenv
 import uvicorn
 import logging
 from pydantic import BaseModel
+from typing import Optional
 from agents.call_agent import CallAgent
 from models.server_event_types import ServerEventType
+from analysis.check_call import CallChecker
 
 # ログ設定 - デバッグレベルに変更
 logging.basicConfig(
@@ -64,6 +66,11 @@ class OutboundCallRequest(BaseModel):
     to_number: str
     message: str = None
     user_id: str = None
+
+
+class CallCheckRequest(BaseModel):
+    user_id: str
+    n: Optional[int] = 10  # 分析する直近の通話数
 
 
 @app.get('/', response_class=JSONResponse)
@@ -129,6 +136,44 @@ async def outbound_call_endpoint(request: OutboundCallRequest, http_request: Req
             "error": str(e)
         }
 
+# client向けパス
+
+
+@app.post("/client/call/check")
+async def check_call_content(request: CallCheckRequest):
+    """通話内容をチェック（クライアント向け）"""
+    try:
+        checker = CallChecker()
+
+        # 特定ユーザーのチェック（自動保存付き）
+        result, check_id = await checker.check_user_calls(request.user_id, request.n)
+        logger.info(
+            f"通話チェック完了 user_id: {request.user_id}, severity_level: {result.severity_level}, check_id: {check_id}")
+
+        return {
+            "success": True,
+            "user_id": request.user_id,
+            "check_id": check_id,
+            "check_result": json.loads(result.model_dump_json())
+        }
+
+    except Exception as e:
+        logger.error(
+            f"通話チェックエラー user_id: {request.user_id}, error: {e}", exc_info=True)
+        return {
+            "success": False,
+            "user_id": request.user_id,
+            "error": str(e),
+            "check_result": {
+                "reason": f"チェック中にエラーが発生しました: {str(e)}",
+                "severity_level": "通常",
+                "detected_issues": [],
+                "evidence": [],
+                "source_calls": [],
+                "analyzed_at": None
+            }
+        }
+
 
 @app.websocket("/media-stream")
 async def handle_media_stream(websocket: WebSocket):
@@ -145,6 +190,7 @@ async def handle_media_stream(websocket: WebSocket):
     response_start_timestamp_twilio = None
     last_assistant_item = None
     is_running = True
+    user_id = None  # user_idを保持
 
     # Create CallAgent instance - user_idは後でstartイベントで設定
     call_agent = CallAgent()
@@ -155,7 +201,7 @@ async def handle_media_stream(websocket: WebSocket):
 
     async def receive_from_twilio():
         """Receive audio data from Twilio and send it to the OpenAI Realtime API."""
-        nonlocal stream_sid, latest_media_timestamp, is_running
+        nonlocal stream_sid, latest_media_timestamp, is_running, user_id
         try:
             async for message in websocket.iter_text():
                 data = json.loads(message)
@@ -173,12 +219,11 @@ async def handle_media_stream(websocket: WebSocket):
 
                 elif data['event'] == 'start':
                     stream_sid = data['start']['streamSid']
+                    call_sid = data['start'].get('callSid')
                     logger.info(
-                        f"Incoming stream has started {stream_sid}")
+                        f"Incoming stream has started {stream_sid}, call_sid: {call_sid}")
                     response_start_timestamp_twilio = None
                     latest_media_timestamp = 0
-
-                    user_id = None
 
                     # TwiMLのカスタムパラメータからuser_idを取得
                     if 'customParameters' in data['start']:
@@ -190,7 +235,7 @@ async def handle_media_stream(websocket: WebSocket):
                                 f"Found user_id in custom parameters: {user_id}")
 
                     # 会話を開始（ユーザー情報設定と反映）
-                    await call_agent.start_conversation(user_id)
+                    await call_agent.start_conversation(user_id, call_sid)
 
                 elif data['event'] == 'stop':
                     logger.info(
@@ -296,6 +341,28 @@ async def handle_media_stream(websocket: WebSocket):
     finally:
         logger.info("WebSocket session ended")
         await call_agent.close()
+        
+        # 通話終了後に自動的に通話チェックを実行（非同期・結果待たず）
+        if user_id:
+            asyncio.create_task(trigger_call_check(user_id))
+        else:
+            logger.warning("user_idが設定されていないため通話チェックをスキップします")
+
+
+async def trigger_call_check(user_id: str) -> None:
+    """
+    通話チェックを非同期で実行（結果を待たない）
+    
+    Args:
+        user_id: チェック対象のユーザーID
+    """
+    try:
+        logger.info(f"通話終了後チェック開始: user_id={user_id}")
+        checker = CallChecker()
+        result, check_id = await checker.check_user_calls(user_id)
+        logger.info(f"通話終了後チェック完了: user_id={user_id}, severity_level={result.severity_level}, check_id={check_id}")
+    except Exception as e:
+        logger.error(f"通話終了後チェックエラー: user_id={user_id}, error={e}", exc_info=True)
 
 
 # These functions are now handled internally by CallAgent

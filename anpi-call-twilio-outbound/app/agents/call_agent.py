@@ -3,7 +3,7 @@ import json
 import base64
 import asyncio
 import logging
-from datetime import date
+from datetime import date, datetime
 from typing import Dict, Any, Optional
 import websockets
 from websockets.protocol import State
@@ -11,6 +11,7 @@ from agents.event_agent import EventAgent
 from models.openai_event_types import OpenAIEventType
 from models.server_event_types import ServerEventType
 from repositories.cloudsql_user_repository import CloudSQLUserRepository
+from repositories.firestore_transcription_repository import FirestoreTranscriptionRepository
 from models.schemas import User
 
 
@@ -91,6 +92,8 @@ class CallAgent:
         self.user_id = None
         # CloudSQLUserRepositoryを使用
         self.user_repository = CloudSQLUserRepository()
+        # FirestoreTranscriptionRepositoryを使用
+        self.transcription_repository = FirestoreTranscriptionRepository()
         self.user: Optional[User] = None
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.openai_ws: Optional[Any] = None
@@ -332,7 +335,10 @@ class CallAgent:
 
         elif event_type == OpenAIEventType.CONVERSATION_ITEM_INPUT_AUDIO_TRANSCRIPTION_COMPLETED:
             user_transcript = event.get("transcript", "")
-            # TODO 話者の文字起こし完了.録音機能で実装
+            if user_transcript:
+                # Firestoreリポジトリに文字起こしを追加（自動保存付き）
+                await self.transcription_repository.add_transcription("user", user_transcript)
+                self.logger.info(f"User transcription: {user_transcript}")
 
         elif event_type == OpenAIEventType.RESPONSE_DONE:
             # Reset last_assistant_item when response is complete
@@ -367,15 +373,13 @@ class CallAgent:
                 "type": ServerEventType.CONTROL_AUDIO_DONE
             }
 
-        elif event_type == OpenAIEventType.RESPONSE_AUDIO_TRANSCRIPT_DELTA:
-            # TODO 録音機能で実装
-            ai_transcript_delta = event.get("delta", "")
-
         elif event_type == OpenAIEventType.RESPONSE_AUDIO_TRANSCRIPT_DONE:
-            # TODO 録音機能で実装
             transcript = event.get("transcript", "")
-
             if transcript:
+                # Firestoreリポジトリに文字起こしを追加（自動保存付き）
+                await self.transcription_repository.add_transcription("assistant", transcript)
+                self.logger.info(f"Assistant transcription: {transcript}")
+
                 return {
                     "type": ServerEventType.TRANSCRIPT,
                     "transcript": transcript
@@ -387,10 +391,6 @@ class CallAgent:
                 "type": ServerEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED,
                 "last_assistant_item": self.last_assistant_item
             }
-
-        elif event_type == OpenAIEventType.CONVERSATION_ITEM_INPUT_AUDIO_TRANSCRIPTION_DELTA:
-            # TODO 録音機能で実装
-            transcript_delta = event.get("delta", "")
 
         elif event_type == OpenAIEventType.RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE:
             function_name = event.get('name')
@@ -424,8 +424,11 @@ class CallAgent:
             await self.openai_ws.send(json.dumps(truncate_event))
             self.last_assistant_item = None
 
-    async def start_conversation(self, user_id: Optional[str] = None):
+    async def start_conversation(self, user_id: Optional[str], call_sid: str):
         """会話を開始（ユーザー情報を設定してセッションを更新）"""
+        # Firestoreリポジトリで文字起こしを開始
+        self.transcription_repository.start_transcription(user_id, call_sid)
+
         if user_id:
             self.user_id = user_id
             # ユーザー情報を取得
@@ -436,6 +439,8 @@ class CallAgent:
                 await self._update_user_context()
             else:
                 self.logger.warning(f"User not found for user_id: {user_id}")
+        else:
+            self.logger.info("Starting conversation without user_id")
 
     async def _update_user_context(self):
         """ユーザー情報を含むinstructionsの差分更新"""
@@ -453,5 +458,9 @@ class CallAgent:
 
     async def close(self):
         """接続をクローズ"""
+        # Firestoreリポジトリのリソースをクリーンアップ（自動的に最終保存される）
+        await self.transcription_repository.close()
+
+        # OpenAI WebSocket接続をクローズ
         if self.openai_ws and self.openai_ws.state != State.CLOSED:
             await self.openai_ws.close()

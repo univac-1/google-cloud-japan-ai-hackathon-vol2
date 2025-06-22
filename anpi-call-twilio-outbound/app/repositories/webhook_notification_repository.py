@@ -23,8 +23,8 @@ class WebhookNotificationRepository(NotificationRepository):
             to_email: 送信先メールアドレス（環境変数NOTIFICATION_EMAIL_TOからも取得可能）
             timeout: タイムアウト秒数（デフォルト: 30秒）
         """
-        self.email_api_url = email_api_url or os.getenv("EMAIL_API_URL", "https://send-email-hkzk5xnm7q-an.a.run.app/send_email")
-        self.to_email = to_email or os.getenv("NOTIFICATION_EMAIL_TO", "tragic44cg@icloud.com")
+        self.email_api_url = email_api_url or os.getenv("EMAIL_API_URL")
+        self.to_email = to_email or os.getenv("NOTIFICATION_EMAIL_TO")
         self.timeout = timeout
 
     async def send_call_check_notification(self, user_id: str, result: CallCheckResult) -> Dict[str, Any]:

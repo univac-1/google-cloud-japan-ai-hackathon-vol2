@@ -190,6 +190,7 @@ async def handle_media_stream(websocket: WebSocket):
     response_start_timestamp_twilio = None
     last_assistant_item = None
     is_running = True
+    user_id = None  # user_idを保持
 
     # Create CallAgent instance - user_idは後でstartイベントで設定
     call_agent = CallAgent()
@@ -200,7 +201,7 @@ async def handle_media_stream(websocket: WebSocket):
 
     async def receive_from_twilio():
         """Receive audio data from Twilio and send it to the OpenAI Realtime API."""
-        nonlocal stream_sid, latest_media_timestamp, is_running
+        nonlocal stream_sid, latest_media_timestamp, is_running, user_id
         try:
             async for message in websocket.iter_text():
                 data = json.loads(message)
@@ -223,8 +224,6 @@ async def handle_media_stream(websocket: WebSocket):
                         f"Incoming stream has started {stream_sid}, call_sid: {call_sid}")
                     response_start_timestamp_twilio = None
                     latest_media_timestamp = 0
-
-                    user_id = None
 
                     # TwiMLのカスタムパラメータからuser_idを取得
                     if 'customParameters' in data['start']:
@@ -342,6 +341,28 @@ async def handle_media_stream(websocket: WebSocket):
     finally:
         logger.info("WebSocket session ended")
         await call_agent.close()
+        
+        # 通話終了後に自動的に通話チェックを実行（非同期・結果待たず）
+        if user_id:
+            asyncio.create_task(trigger_call_check(user_id))
+        else:
+            logger.warning("user_idが設定されていないため通話チェックをスキップします")
+
+
+async def trigger_call_check(user_id: str) -> None:
+    """
+    通話チェックを非同期で実行（結果を待たない）
+    
+    Args:
+        user_id: チェック対象のユーザーID
+    """
+    try:
+        logger.info(f"通話終了後チェック開始: user_id={user_id}")
+        checker = CallChecker()
+        result, check_id = await checker.check_user_calls(user_id)
+        logger.info(f"通話終了後チェック完了: user_id={user_id}, severity_level={result.severity_level}, check_id={check_id}")
+    except Exception as e:
+        logger.error(f"通話終了後チェックエラー: user_id={user_id}, error={e}", exc_info=True)
 
 
 # These functions are now handled internally by CallAgent

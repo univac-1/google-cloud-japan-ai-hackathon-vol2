@@ -83,3 +83,73 @@ class FirestoreCallRepository:
         except Exception as e:
             raise Exception(f"通話データ取得エラー: {str(e)}")
 
+    async def get_latest_calls(self, user_id: str, n: int = 10) -> List[Dict[str, Any]]:
+        """
+        指定ユーザーの直近n件の通話データを取得
+        
+        Args:
+            user_id: ユーザーID
+            n: 取得する通話数
+            
+        Returns:
+            通話データのリスト（新しい順）
+        """
+        try:
+            calls_ref = (self.db.collection("users")
+                        .document(user_id)
+                        .collection("calls"))
+            
+            query = (calls_ref
+                    .order_by("call_started_at", direction=firestore.Query.DESCENDING)
+                    .limit(n))
+            
+            docs = await query.get()
+            
+            calls = []
+            for doc in docs:
+                data = doc.to_dict()
+                data["call_id"] = doc.id
+                calls.append(data)
+            
+            return calls
+            
+        except Exception as e:
+            raise Exception(f"直近通話データ取得エラー: {str(e)}")
+
+    async def get_calls_by_date_range(self, user_id: str, start_date: datetime, end_date: datetime, max_calls: int = 5) -> List[Dict[str, Any]]:
+        """
+        日付範囲で通話データを取得
+        
+        Args:
+            user_id: ユーザーID
+            start_date: 開始日時
+            end_date: 終了日時
+            max_calls: 最大取得件数
+            
+        Returns:
+            通話データのリスト
+        """
+        try:
+            calls_ref = (self.db.collection("users")
+                        .document(user_id)
+                        .collection("calls"))
+            
+            query = (calls_ref
+                    .where("call_started_at", ">=", start_date)
+                    .where("call_started_at", "<=", end_date)
+                    .order_by("call_started_at", direction=firestore.Query.DESCENDING)
+                    .limit(max_calls))
+            
+            docs = await query.get()
+            
+            calls = []
+            for doc in docs:
+                data = doc.to_dict()
+                data["call_id"] = doc.id
+                calls.append(data)
+            
+            return calls
+            
+        except Exception as e:
+            raise Exception(f"日付範囲通話データ取得エラー: {str(e)}")
+

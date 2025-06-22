@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from repositories.firestore_call_repository import FirestoreCallRepository
 from repositories.firestore_call_check_repository import FirestoreCallCheckRepository
-from models.call_check import CallCheckResult, OpenAICallAnalysisResult
+from models.call_check import CallCheckResult, OpenAICallAnalysisResult, SeverityLevel, Evidence
 
 logger = logging.getLogger(__name__)
 
@@ -17,41 +17,39 @@ logger = logging.getLogger(__name__)
 class CallChecker:
     """通話内容をチェックするクラス"""
 
-    def __init__(self, project_id: Optional[str] = None, max_calls: int = 5):
+    def __init__(self, project_id: Optional[str] = None):
         """
         Args:
             project_id: GCPプロジェクトID
-            max_calls: 分析する最大通話数（デフォルト: 5件）
         """
-        self.max_calls = max_calls
         self.call_repository = FirestoreCallRepository(project_id)
         self.check_repository = FirestoreCallCheckRepository(project_id)
         self.openai_client = OpenAI()
 
-    async def check_user_calls(self, user_id: str, days: int = 7, save_result: bool = True) -> tuple[CallCheckResult, Optional[str]]:
+    async def check_user_calls(self, user_id: str, n: Optional[int] = 10, save_result: bool = True) -> tuple[CallCheckResult, Optional[str]]:
         """
-        指定ユーザーの通話内容をチェック
+        指定ユーザーの直近の通話内容をチェック
 
         Args:
             user_id: チェック対象のユーザーID
-            days: チェック期間（日数、デフォルト: 7日）
+            n: 分析する直近の通話数（デフォルト: 10件）
             save_result: 結果をFirestoreに保存するか（デフォルト: True）
 
         Returns:
             tuple[CallCheckResult, Optional[str]]: (チェック結果, チェックID)
         """
         try:
-            # 最近の通話データを取得
-            calls = await self.call_repository.get_recent_calls(user_id, days, self.max_calls)
+            # 通話データを取得（直近n件）
+            calls = await self.call_repository.get_latest_calls(user_id, n)
 
             if not calls:
                 result = CallCheckResult(
-                    has_issue=False,
                     reason="分析対象の通話データが見つかりませんでした",
-                    confidence=0.0,
+                    severity_level=SeverityLevel.NORMAL,
                     detected_issues=[],
-                    analyzed_calls=[],
-                    sources=[]
+                    evidence=[],
+                    source_calls=[],
+                    analyzed_at=datetime.now()
                 )
                 
                 # 通話データがない場合は保存しない
@@ -63,12 +61,12 @@ class CallChecker:
             call_ids = [call.get("call_id", "") for call in calls]
             
             result = CallCheckResult(
-                has_issue=analysis_result["has_issue"],
-                reason=analysis_result["reason"],
-                confidence=analysis_result["confidence"],
-                detected_issues=analysis_result["detected_issues"],
-                analyzed_calls=call_ids,
-                sources=call_ids
+                reason=analysis_result.reason,
+                severity_level=analysis_result.severity_level,
+                detected_issues=analysis_result.detected_issues,
+                evidence=analysis_result.evidence,
+                source_calls=call_ids,
+                analyzed_at=datetime.now()
             )
             
             check_id = None
@@ -80,12 +78,12 @@ class CallChecker:
         except Exception as e:
             logger.error(f"通話チェックエラー user_id: {user_id}, error: {e}")
             result = CallCheckResult(
-                has_issue=False,
                 reason=f"通話チェック中にエラーが発生しました: {str(e)}",
-                confidence=0.0,
+                severity_level=SeverityLevel.NORMAL,
                 detected_issues=[],
-                analyzed_calls=[],
-                sources=[]
+                evidence=[],
+                source_calls=[],
+                analyzed_at=datetime.now()
             )
             
             check_id = None
@@ -97,73 +95,82 @@ class CallChecker:
             
             return result, check_id
 
-    async def _analyze_with_openai(self, calls: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def _analyze_with_openai(self, calls: List[Dict[str, Any]]) -> OpenAICallAnalysisResult:
         """OpenAI GPT-4o-miniで通話内容を分析"""
         try:
             # 分析用のプロンプトを作成
             analysis_prompt = self._create_analysis_prompt(calls)
 
-            # OpenAI APIを呼び出し
-            response = self.openai_client.chat.completions.create(
+            # OpenAI APIを呼び出し（Pydantic response_formatを使用）
+            response = self.openai_client.beta.chat.completions.parse(
                 model="gpt-4o-mini",
                 messages=[
                     {
                         "role": "system",
                         "content": """あなたは高齢者の安否確認通話を分析する専門家です。
-通話内容から以下の問題を検出してください：
-1. 健康状態の悪化
-2. 認知機能の低下
-3. 日常生活の問題
-4. 孤立感や抑うつ状態
-5. 安全上の懸念
+自治体担当者への通報は緊急性の高い場合のみに限定されるため、以下の重大な問題のみを検出してください：
 
-結果はJSON形式で返してください：
-{
-  "has_issue": boolean,
-  "reason": "問題の要約",
-  "confidence": 0.0-1.0,
-  "detected_issues": ["具体的な問題1", "具体的な問題2"]
-}"""
+【異常】緊急対応が必要な事案：
+1. 生命に関わる健康問題（倒れた、動けない、激しい痛み、呼吸困難など）
+2. 重度の認知機能障害（自分の名前や場所がわからない、家族を認識できないなど）
+3. 虐待や犯罪被害の疑い
+4. 自殺念慮や自傷行為の兆候
+5. 食事・水分を3日以上摂っていない
+6. 重要な薬（心臓病、糖尿病など）の服用忘れが続いている
+
+【要観察】継続的な観察が必要な事案：
+- 軽度〜中度の認知機能低下（物忘れが増えている、同じ話を繰り返すなど）
+- 慢性的な体調不良（食欲低下、睡眠障害、疲労感など）
+- 孤立感や軽度の抑うつ状態
+- 日常生活に支障が出始めている（買い物が困難、家事ができないなど）
+
+【通常】問題なし、または一時的な問題：
+- 一時的な体調不良（風邪、軽い頭痛など）
+- 普通の寂しさや愚痴
+- 軽度の生活上の不便
+
+severity_levelを判定してください。
+
+判断の根拠となった具体的な発言を必ず引用してください。各引用には通話IDと発言者を含めてください。"""
                     },
                     {
                         "role": "user",
                         "content": analysis_prompt
                     }
                 ],
-                response_format={"type": "json_object"}
+                response_format=OpenAICallAnalysisResult
             )
 
-            # レスポンスを解析
-            result_text = response.choices[0].message.content
-            result = eval(result_text)  # JSONをパース
-
-            return result
+            # Pydanticモデルが直接返される
+            return response.choices[0].message.parsed
 
         except Exception as e:
             logger.error(f"OpenAI分析エラー: {e}")
-            return {
-                "has_issue": False,
-                "reason": "分析中にエラーが発生しました",
-                "confidence": 0.0,
-                "detected_issues": []
-            }
+            return OpenAICallAnalysisResult(
+                reason="分析中にエラーが発生しました",
+                severity_level=SeverityLevel.NORMAL,
+                detected_issues=[],
+                evidence=[]
+            )
 
     def _create_analysis_prompt(self, calls: List[Dict[str, Any]]) -> str:
         """分析用のプロンプトを作成"""
-        prompt_parts = ["以下の通話内容を分析してください：\n"]
+        prompt_parts = ["以下の通話内容を分析してください。発言を引用する際は、必ず通話IDを含めてください：\n"]
 
         for i, call in enumerate(calls, 1):
+            call_id = call.get("call_id", f"call_{i}")
             call_date = call.get("call_started_at", "不明")
             transcriptions = call.get("transcriptions", [])
 
             if isinstance(call_date, datetime):
                 call_date = call_date.strftime("%Y-%m-%d %H:%M")
 
-            prompt_parts.append(f"\n【通話 {i}】 日時: {call_date}")
+            prompt_parts.append(f"\n【通話 {i}】 通話ID: {call_id}, 日時: {call_date}")
 
             for msg in transcriptions:
-                speaker = "利用者" if msg.get("speaker") == "user" else "オペレーター"
+                speaker = "user" if msg.get("speaker") == "user" else "assistant"
+                speaker_label = "利用者" if speaker == "user" else "オペレーター"
                 text = msg.get("text", "")
-                prompt_parts.append(f"{speaker}: {text}")
+                prompt_parts.append(f"{speaker_label}: {text}")
 
         return "\n".join(prompt_parts)

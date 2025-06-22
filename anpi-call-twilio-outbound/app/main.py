@@ -21,6 +21,7 @@ from analysis.detect_anomaly import AnomalyDetector
 from analysis.check_call import CallChecker
 from repositories.firestore_anomaly_repository import FirestoreAnomalyRepository
 from repositories.webhook_notification_repository import WebhookNotificationRepository
+from utils.json_serializer import datetime_serializer
 
 # ログ設定 - デバッグレベルに変更
 logging.basicConfig(
@@ -71,8 +72,9 @@ class OutboundCallRequest(BaseModel):
     user_id: str = None
 
 
-class ConversationCheckRequest(BaseModel):
+class CallCheckRequest(BaseModel):
     user_id: str
+    n: Optional[int] = 10  # 分析する直近の通話数
 
 
 @app.get('/', response_class=JSONResponse)
@@ -142,20 +144,20 @@ async def outbound_call_endpoint(request: OutboundCallRequest, http_request: Req
 
 
 @app.post("/client/call/check")
-async def check_call_content(request: ConversationCheckRequest):
+async def check_call_content(request: CallCheckRequest):
     """通話内容をチェック（クライアント向け）"""
     try:
         checker = CallChecker()
         
         # 特定ユーザーのチェック（自動保存付き）
-        result, check_id = await checker.check_user_calls(request.user_id)
-        logger.info(f"通話チェック完了 user_id: {request.user_id}, has_issue: {result.has_issue}, check_id: {check_id}")
+        result, check_id = await checker.check_user_calls(request.user_id, request.n)
+        logger.info(f"通話チェック完了 user_id: {request.user_id}, severity_level: {result.severity_level}, check_id: {check_id}")
         
         return {
             "success": True,
             "user_id": request.user_id,
             "check_id": check_id,
-            "check_result": result.model_dump()
+            "check_result": json.loads(result.model_dump_json())
         }
 
     except Exception as e:
@@ -165,12 +167,12 @@ async def check_call_content(request: ConversationCheckRequest):
             "user_id": request.user_id,
             "error": str(e),
             "check_result": {
-                "has_issue": False,
                 "reason": f"チェック中にエラーが発生しました: {str(e)}",
-                "confidence": 0.0,
+                "severity_level": "通常",
                 "detected_issues": [],
-                "analyzed_calls": [],
-                "sources": []
+                "evidence": [],
+                "source_calls": [],
+                "analyzed_at": None
             }
         }
 

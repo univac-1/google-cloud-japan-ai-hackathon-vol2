@@ -29,9 +29,8 @@ class FirestoreCallCheckRepository:
             保存されたドキュメントID
         """
         try:
-            # チェックIDを生成（タイムスタンプ + UUID）
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            check_id = f"{timestamp}_{str(uuid.uuid4())[:8]}"
+            # チェックIDを生成（UUID）
+            check_id = str(uuid.uuid4())
             
             # パス: /users/{user_id}/call_checks/{check_id}
             doc_ref = (self.db.collection("users")
@@ -39,14 +38,9 @@ class FirestoreCallCheckRepository:
                       .collection("call_checks")
                       .document(check_id))
             
-            # 保存データ
-            check_data = {
-                "user_id": user_id,
-                "check_id": check_id,
-                "checked_at": datetime.now(),
-                "result": result.model_dump(),
-                "created_at": firestore.SERVER_TIMESTAMP
-            }
+            # 保存データ（resultの内容をそのまま保存）
+            check_data = result.model_dump()
+            check_data["created_at"] = firestore.SERVER_TIMESTAMP
             
             await doc_ref.set(check_data)
             
@@ -97,7 +91,7 @@ class FirestoreCallCheckRepository:
             query = (self.db.collection("users")
                     .document(user_id)
                     .collection("call_checks")
-                    .order_by("checked_at", direction=firestore.Query.DESCENDING)
+                    .order_by("analyzed_at", direction=firestore.Query.DESCENDING)
                     .limit(limit))
             
             docs = await query.get()
@@ -155,8 +149,8 @@ class FirestoreCallCheckRepository:
             query = (self.db.collection("users")
                     .document(user_id)
                     .collection("call_checks")
-                    .where("checked_at", ">=", cutoff_date)
-                    .order_by("checked_at"))
+                    .where("analyzed_at", ">=", cutoff_date)
+                    .order_by("analyzed_at"))
             
             docs = await query.get()
             
@@ -166,13 +160,13 @@ class FirestoreCallCheckRepository:
             
             for doc in docs:
                 data = doc.to_dict()
-                result = data.get("result", {})
                 
-                if result.get("has_issue", False):
+                severity_level = data.get("severity_level", "通常")
+                if severity_level in ["要観察", "異常"]:
                     issue_count += 1
                 
-                if latest_check is None or data.get("checked_at") > latest_check:
-                    latest_check = data.get("checked_at")
+                if latest_check is None or data.get("analyzed_at") > latest_check:
+                    latest_check = data.get("analyzed_at")
             
             return {
                 "user_id": user_id,
@@ -185,3 +179,4 @@ class FirestoreCallCheckRepository:
             
         except Exception as e:
             raise Exception(f"チェック履歴統計取得エラー: {str(e)}")
+

@@ -61,6 +61,21 @@ if [ -z "$PHONE_NUMBER_FROM" ]; then
     exit 1
 fi
 
+if [ -z "$EMAIL_API_URL" ]; then
+    echo -e "${RED}❌ Error: EMAIL_API_URL is not set${NC}"
+    exit 1
+fi
+
+if [ -z "$NOTIFICATION_EMAIL_TO" ]; then
+    echo -e "${RED}❌ Error: NOTIFICATION_EMAIL_TO is not set${NC}"
+    exit 1
+fi
+
+if [ -z "$NOTIFICATION_MIN_LEVEL" ]; then
+    echo -e "${RED}❌ Error: NOTIFICATION_MIN_LEVEL is not set${NC}"
+    exit 1
+fi
+
 echo -e "${GREEN}✓ All environment variables are set${NC}"
 
 # Artifact Registryリポジトリの存在確認・作成
@@ -102,7 +117,7 @@ fi
 # Cloud Buildを使用してデプロイ
 echo -e "${YELLOW}Starting Cloud Build deployment...${NC}"
 gcloud builds submit --config cloudbuild.yaml \
-    --substitutions _OPENAI_API_KEY="$OPENAI_API_KEY",_TWILIO_ACCOUNT_SID="$TWILIO_ACCOUNT_SID",_TWILIO_AUTH_TOKEN="$TWILIO_AUTH_TOKEN",_PHONE_NUMBER_FROM="$PHONE_NUMBER_FROM",_DB_NAME="$DB_NAME",_DEFAULT_USER="$DEFAULT_USER",_DEFAULT_PASSWORD="$DEFAULT_PASSWORD",_CLOUD_SQL_CONNECTION_STRING="$CLOUD_SQL_CONNECTION_STRING" .
+    --substitutions "_OPENAI_API_KEY=$OPENAI_API_KEY,_TWILIO_ACCOUNT_SID=$TWILIO_ACCOUNT_SID,_TWILIO_AUTH_TOKEN=$TWILIO_AUTH_TOKEN,_PHONE_NUMBER_FROM=$PHONE_NUMBER_FROM,_DB_NAME=$DB_NAME,_DEFAULT_USER=$DEFAULT_USER,_DEFAULT_PASSWORD=$DEFAULT_PASSWORD,_CLOUD_SQL_CONNECTION_STRING=$CLOUD_SQL_CONNECTION_STRING,_EMAIL_API_URL=$EMAIL_API_URL,_NOTIFICATION_EMAIL_TO=$NOTIFICATION_EMAIL_TO,_NOTIFICATION_MIN_LEVEL=$NOTIFICATION_MIN_LEVEL" .
 
 # デプロイ完了後のサービスURL取得
 echo -e "${YELLOW}Getting service URL...${NC}"

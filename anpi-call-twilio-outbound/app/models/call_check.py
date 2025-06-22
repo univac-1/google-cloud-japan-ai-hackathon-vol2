@@ -11,6 +11,22 @@ class SeverityLevel(str, Enum):
     NORMAL = "通常"  # 問題なし
     OBSERVATION = "要観察"  # 経過観察が必要
     ABNORMAL = "異常"  # 緊急対応が必要
+    
+    @property
+    def level(self) -> int:
+        """数値レベルを取得（低いほど軽微、高いほど重要）"""
+        level_map = {
+            "通常": 1,
+            "要観察": 2,
+            "異常": 3
+        }
+        return level_map[self.value]
+    
+    @classmethod
+    def from_level(cls, level: int) -> 'SeverityLevel':
+        """数値レベルからSeverityLevelを取得"""
+        level_map = {1: cls.NORMAL, 2: cls.OBSERVATION, 3: cls.ABNORMAL}
+        return level_map.get(level, cls.ABNORMAL)
 
 
 class Evidence(BaseModel):

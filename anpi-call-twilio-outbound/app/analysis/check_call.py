@@ -190,12 +190,12 @@ severity_levelを判定してください。
             result: 通話チェック結果
         """
         try:
-            # 環境変数から通知対象レベルを取得（デフォルト: 異常のみ）
-            notification_levels_str = os.getenv("NOTIFICATION_SEVERITY_LEVELS", "異常")
-            notification_levels = [level.strip() for level in notification_levels_str.split(",")]
+            # 環境変数から通知対象の最小レベルを取得（デフォルト: ABNORMAL=異常のみ）
+            min_level_name = os.getenv("NOTIFICATION_MIN_LEVEL", "ABNORMAL")
+            min_notification_level = getattr(SeverityLevel, min_level_name, SeverityLevel.ABNORMAL)
             
-            # 対象レベルに含まれる場合のみ通知
-            if result.severity_level.value in notification_levels:
+            # 指定レベル以上の場合のみ通知
+            if result.severity_level.level >= min_notification_level.level:
                 notification_result = await self.notification_repository.send_call_check_notification(user_id, result)
 
                 if notification_result.get("success"):

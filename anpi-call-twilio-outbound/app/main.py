@@ -18,8 +18,6 @@ from typing import Optional
 from agents.call_agent import CallAgent
 from models.server_event_types import ServerEventType
 from analysis.check_call import CallChecker
-from repositories.webhook_notification_repository import WebhookNotificationRepository
-from utils.json_serializer import datetime_serializer
 
 # ログ設定 - デバッグレベルに変更
 logging.basicConfig(
@@ -146,11 +144,12 @@ async def check_call_content(request: CallCheckRequest):
     """通話内容をチェック（クライアント向け）"""
     try:
         checker = CallChecker()
-        
+
         # 特定ユーザーのチェック（自動保存付き）
         result, check_id = await checker.check_user_calls(request.user_id, request.n)
-        logger.info(f"通話チェック完了 user_id: {request.user_id}, severity_level: {result.severity_level}, check_id: {check_id}")
-        
+        logger.info(
+            f"通話チェック完了 user_id: {request.user_id}, severity_level: {result.severity_level}, check_id: {check_id}")
+
         return {
             "success": True,
             "user_id": request.user_id,
@@ -159,7 +158,8 @@ async def check_call_content(request: CallCheckRequest):
         }
 
     except Exception as e:
-        logger.error(f"通話チェックエラー user_id: {request.user_id}, error: {e}", exc_info=True)
+        logger.error(
+            f"通話チェックエラー user_id: {request.user_id}, error: {e}", exc_info=True)
         return {
             "success": False,
             "user_id": request.user_id,

@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from repositories.firestore_call_repository import FirestoreCallRepository
 from repositories.firestore_call_check_repository import FirestoreCallCheckRepository
+from repositories.webhook_notification_repository import WebhookNotificationRepository
 from models.call_check import CallCheckResult, OpenAICallAnalysisResult, SeverityLevel, Evidence
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ class CallChecker:
         """
         self.call_repository = FirestoreCallRepository(project_id)
         self.check_repository = FirestoreCallCheckRepository(project_id)
+        self.notification_repository = WebhookNotificationRepository()
         self.openai_client = OpenAI()
 
     async def check_user_calls(self, user_id: str, n: Optional[int] = 10, save_result: bool = True) -> tuple[CallCheckResult, Optional[str]]:
@@ -51,7 +53,7 @@ class CallChecker:
                     source_calls=[],
                     analyzed_at=datetime.now()
                 )
-                
+
                 # 通話データがない場合は保存しない
                 return result, None
 
@@ -59,7 +61,7 @@ class CallChecker:
             analysis_result = await self._analyze_with_openai(calls)
 
             call_ids = [call.get("call_id", "") for call in calls]
-            
+
             result = CallCheckResult(
                 reason=analysis_result.reason,
                 severity_level=analysis_result.severity_level,
@@ -68,11 +70,14 @@ class CallChecker:
                 source_calls=call_ids,
                 analyzed_at=datetime.now()
             )
-            
+
             check_id = None
             if save_result:
                 check_id = await self.check_repository.save_check_result(user_id, result)
-            
+
+            # 異常時の通知送信
+            await self._send_notification_if_needed(user_id, result)
+
             return result, check_id
 
         except Exception as e:
@@ -85,14 +90,14 @@ class CallChecker:
                 source_calls=[],
                 analyzed_at=datetime.now()
             )
-            
+
             check_id = None
             if save_result:
                 try:
                     check_id = await self.check_repository.save_check_result(user_id, result)
                 except:
                     pass  # エラー時は保存失敗しても続行
-            
+
             return result, check_id
 
     async def _analyze_with_openai(self, calls: List[Dict[str, Any]]) -> OpenAICallAnalysisResult:
@@ -168,9 +173,37 @@ severity_levelを判定してください。
             prompt_parts.append(f"\n【通話 {i}】 通話ID: {call_id}, 日時: {call_date}")
 
             for msg in transcriptions:
-                speaker = "user" if msg.get("speaker") == "user" else "assistant"
+                speaker = "user" if msg.get(
+                    "speaker") == "user" else "assistant"
                 speaker_label = "利用者" if speaker == "user" else "オペレーター"
                 text = msg.get("text", "")
                 prompt_parts.append(f"{speaker_label}: {text}")
 
         return "\n".join(prompt_parts)
+
+    async def _send_notification_if_needed(self, user_id: str, result: CallCheckResult) -> None:
+        """
+        必要に応じて通知を送信
+
+        Args:
+            user_id: ユーザーID
+            result: 通話チェック結果
+        """
+        try:
+            # 環境変数から通知対象レベルを取得（デフォルト: 異常のみ）
+            notification_levels_str = os.getenv("NOTIFICATION_SEVERITY_LEVELS", "異常")
+            notification_levels = [level.strip() for level in notification_levels_str.split(",")]
+            
+            # 対象レベルに含まれる場合のみ通知
+            if result.severity_level.value in notification_levels:
+                notification_result = await self.notification_repository.send_call_check_notification(user_id, result)
+
+                if notification_result.get("success"):
+                    logger.info(f"通知成功: user_id={user_id}, severity_level={result.severity_level}")
+                else:
+                    logger.warning(f"通知失敗: user_id={user_id}, severity_level={result.severity_level}")
+            else:
+                logger.debug(f"通知対象外: user_id={user_id}, severity_level={result.severity_level} (対象: {notification_levels})")
+
+        except Exception as e:
+            logger.error(f"通知処理エラー: user_id={user_id}, error={e}", exc_info=True)

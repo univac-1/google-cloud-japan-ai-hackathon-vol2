@@ -1,21 +1,21 @@
-"""異常時の通知を送信するリポジトリの抽象インターフェース"""
+"""通話チェック結果の通知を送信するリポジトリの抽象インターフェース"""
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any
-from analysis.detect_anomaly import AnomalyResult
+from models.call_check import CallCheckResult
 
 
 class NotificationRepository(ABC):
-    """異常時の通知を送信するリポジトリの抽象クラス"""
+    """通話チェック結果の通知を送信するリポジトリの抽象クラス"""
     
     @abstractmethod
-    async def send_anomaly_notification(self, user_id: str, result: AnomalyResult) -> Dict[str, Any]:
+    async def send_call_check_notification(self, user_id: str, result: CallCheckResult) -> Dict[str, Any]:
         """
-        異常検知時の通知を送信
+        通話チェック結果の通知を送信
         
         Args:
             user_id: ユーザーID
-            result: 異常検知結果
+            result: 通話チェック結果
             
         Returns:
             Dict[str, Any]: 送信結果

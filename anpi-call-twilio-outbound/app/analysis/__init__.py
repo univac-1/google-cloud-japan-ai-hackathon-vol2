@@ -1,6 +1,5 @@
-"""Analysis modules for detecting anomalies and patterns."""
+"""Analysis modules for call checking."""
 
-from .detect_anomaly import AnomalyDetector
 from .check_call import CallChecker
 
-__all__ = ["AnomalyDetector", "CallChecker"]
+__all__ = ["CallChecker"]

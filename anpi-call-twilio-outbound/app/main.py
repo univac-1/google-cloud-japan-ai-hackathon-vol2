@@ -17,9 +17,7 @@ from pydantic import BaseModel
 from typing import Optional
 from agents.call_agent import CallAgent
 from models.server_event_types import ServerEventType
-from analysis.detect_anomaly import AnomalyDetector
 from analysis.check_call import CallChecker
-from repositories.firestore_anomaly_repository import FirestoreAnomalyRepository
 from repositories.webhook_notification_repository import WebhookNotificationRepository
 from utils.json_serializer import datetime_serializer
 

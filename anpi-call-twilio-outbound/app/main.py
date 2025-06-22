@@ -21,7 +21,7 @@ from analysis.check_call import CallChecker
 
 # ログ設定 - デバッグレベルに変更
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -341,7 +341,7 @@ async def handle_media_stream(websocket: WebSocket):
     finally:
         logger.info("WebSocket session ended")
         await call_agent.close()
-        
+
         # 通話終了後に自動的に通話チェックを実行（非同期・結果待たず）
         if user_id:
             asyncio.create_task(trigger_call_check(user_id))
@@ -352,7 +352,7 @@ async def handle_media_stream(websocket: WebSocket):
 async def trigger_call_check(user_id: str) -> None:
     """
     通話チェックを非同期で実行（結果を待たない）
-    
+
     Args:
         user_id: チェック対象のユーザーID
     """
@@ -360,9 +360,11 @@ async def trigger_call_check(user_id: str) -> None:
         logger.info(f"通話終了後チェック開始: user_id={user_id}")
         checker = CallChecker()
         result, check_id = await checker.check_user_calls(user_id)
-        logger.info(f"通話終了後チェック完了: user_id={user_id}, severity_level={result.severity_level}, check_id={check_id}")
+        logger.info(
+            f"通話終了後チェック完了: user_id={user_id}, severity_level={result.severity_level}, check_id={check_id}")
     except Exception as e:
-        logger.error(f"通話終了後チェックエラー: user_id={user_id}, error={e}", exc_info=True)
+        logger.error(
+            f"通話終了後チェックエラー: user_id={user_id}, error={e}", exc_info=True)
 
 
 # These functions are now handled internally by CallAgent

@@ -2,10 +2,11 @@
 
 import os
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 from google.cloud import firestore
 from google.cloud.firestore_v1.async_client import AsyncClient
 
+from models.call import Call
 from models.transcription import TranscriptionMessage
 
 
@@ -16,7 +17,7 @@ class FirestoreCallRepository:
         self.project_id = project_id or os.getenv("GCP_PROJECT_ID")
         self.db: AsyncClient = firestore.AsyncClient(project=self.project_id)
 
-    async def get_recent_calls(self, user_id: str, days: int = 7, max_calls: int = 5) -> List[Dict[str, Any]]:
+    async def get_recent_calls(self, user_id: str, days: int = 7, max_calls: int = 5) -> List[Call]:
         """
         指定ユーザーの最近の通話データを取得
         
@@ -46,15 +47,27 @@ class FirestoreCallRepository:
             calls = []
             for doc in docs:
                 data = doc.to_dict()
-                data["call_id"] = doc.id
-                calls.append(data)
+                # transcriptionsをTranscriptionMessageのリストに変換
+                transcriptions = [
+                    TranscriptionMessage(**msg) 
+                    for msg in data.get("transcriptions", [])
+                ]
+                
+                call = Call(
+                    call_id=doc.id,
+                    user_id=data.get("user_id"),
+                    call_started_at=data.get("call_started_at"),
+                    call_ended_at=data.get("call_ended_at"),
+                    transcriptions=transcriptions
+                )
+                calls.append(call)
             
             return calls
             
         except Exception as e:
             raise Exception(f"通話データ取得エラー: {str(e)}")
 
-    async def get_call_by_id(self, user_id: str, call_sid: str) -> Optional[Dict[str, Any]]:
+    async def get_call_by_id(self, user_id: str, call_sid: str) -> Optional[Call]:
         """
         特定の通話データを取得
         
@@ -75,15 +88,26 @@ class FirestoreCallRepository:
             
             if doc.exists:
                 data = doc.to_dict()
-                data["call_id"] = doc.id
-                return data
+                # transcriptionsをTranscriptionMessageのリストに変換
+                transcriptions = [
+                    TranscriptionMessage(**msg) 
+                    for msg in data.get("transcriptions", [])
+                ]
+                
+                return Call(
+                    call_id=doc.id,
+                    user_id=data.get("user_id"),
+                    call_started_at=data.get("call_started_at"),
+                    call_ended_at=data.get("call_ended_at"),
+                    transcriptions=transcriptions
+                )
             
             return None
             
         except Exception as e:
             raise Exception(f"通話データ取得エラー: {str(e)}")
 
-    async def get_latest_calls(self, user_id: str, n: int = 10) -> List[Dict[str, Any]]:
+    async def get_latest_calls(self, user_id: str, n: int = 10) -> List[Call]:
         """
         指定ユーザーの直近n件の通話データを取得
         
@@ -108,15 +132,27 @@ class FirestoreCallRepository:
             calls = []
             for doc in docs:
                 data = doc.to_dict()
-                data["call_id"] = doc.id
-                calls.append(data)
+                # transcriptionsをTranscriptionMessageのリストに変換
+                transcriptions = [
+                    TranscriptionMessage(**msg) 
+                    for msg in data.get("transcriptions", [])
+                ]
+                
+                call = Call(
+                    call_id=doc.id,
+                    user_id=data.get("user_id"),
+                    call_started_at=data.get("call_started_at"),
+                    call_ended_at=data.get("call_ended_at"),
+                    transcriptions=transcriptions
+                )
+                calls.append(call)
             
             return calls
             
         except Exception as e:
             raise Exception(f"直近通話データ取得エラー: {str(e)}")
 
-    async def get_calls_by_date_range(self, user_id: str, start_date: datetime, end_date: datetime, max_calls: int = 5) -> List[Dict[str, Any]]:
+    async def get_calls_by_date_range(self, user_id: str, start_date: datetime, end_date: datetime, max_calls: int = 5) -> List[Call]:
         """
         日付範囲で通話データを取得
         
@@ -145,8 +181,20 @@ class FirestoreCallRepository:
             calls = []
             for doc in docs:
                 data = doc.to_dict()
-                data["call_id"] = doc.id
-                calls.append(data)
+                # transcriptionsをTranscriptionMessageのリストに変換
+                transcriptions = [
+                    TranscriptionMessage(**msg) 
+                    for msg in data.get("transcriptions", [])
+                ]
+                
+                call = Call(
+                    call_id=doc.id,
+                    user_id=data.get("user_id"),
+                    call_started_at=data.get("call_started_at"),
+                    call_ended_at=data.get("call_ended_at"),
+                    transcriptions=transcriptions
+                )
+                calls.append(call)
             
             return calls
             

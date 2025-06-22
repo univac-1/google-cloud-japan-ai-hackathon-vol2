@@ -12,6 +12,7 @@ RUNTIME="python312"
 ENTRY_POINT="send_email"
 MEMORY="256MB"
 TIMEOUT="60s"
+DEFAULT_FROM_EMAIL="univacanpicall@gmail.com" # 送信元emailアドレス
 
 # APIキーの確認
 if [ -z "$1" ]; then
@@ -34,11 +35,11 @@ gcloud functions deploy $FUNCTION_NAME \
     --region=$REGION \
     --source=. \
     --entry-point=$ENTRY_POINT \
-    --trigger=http \
+    --trigger-http \
     --allow-unauthenticated \
     --memory=$MEMORY \
     --timeout=$TIMEOUT \
-    --set-env-vars="SENDGRID_API_KEY=$SENDGRID_API_KEY,DEFAULT_FROM_EMAIL=noreply@example.com,DEFAULT_FROM_NAME=AnpiCall System"
+    --set-env-vars="SENDGRID_API_KEY=$SENDGRID_API_KEY,DEFAULT_FROM_EMAIL=$DEFAULT_FROM_EMAIL,DEFAULT_FROM_NAME=AnpiCall System,SENDGRID_SANDBOX_MODE=false"
 
 echo "✅ デプロイが完了しました！"
 

@@ -80,17 +80,6 @@ gcloud run services logs read speech-assistant-outbound --region=asia-northeast1
 
 ## 環境設定
 
-### Cloud Run 用 (.env の現在設定)
-
-```env
-TWILIO_ACCOUNT_SID="ACcec80a2903fd4c3f7b287d8600565d27"
-TWILIO_AUTH_TOKEN="ae91816925221569e1f9b63b8efcdc92"
-PHONE_NUMBER_FROM="+15676011645"
-DOMAIN='speech-assistant-outbound-hkzk5xnm7q-an.a.run.app'
-OPENAI_API_KEY="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"
-PORT=8080
-```
-
 ### ローカル開発用 (.env 設定例)
 
 ```env

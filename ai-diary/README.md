@@ -1,14 +1,30 @@
 # AI Diary Service
 
-ユーザー情報取得APIサービス + 日記生成機能
+ユーザー情報取得 + 会話履歴取得 + AI日記生成の統合APIサービス
 
 ## 概要
 
-- userIDとcallIDを受け取り、userIDをもとにRDBからユーザー情報を取得するAPIサービス
-- anpi-call-dbで作成されたCloud SQL for MySQLに接続してユーザー情報を取得
-- Firestoreから会話履歴を取得
-- **NEW**: Gemini APIを使用して家族向けの日記風文章を生成
+- userIDとcallIDを受け取り、以下の一連の処理を実行：
+  1. userIDをもとにRDBからユーザー情報を取得
+  2. userIDとcallIDをもとにFirestoreから会話履歴を取得  
+  3. **NEW**: 取得した情報を使ってGemini APIで家族向けの日記風文章を生成
+- anpi-call-dbで作成されたCloud SQL for MySQLに接続
 - Flask RESTful APIとして実装
+
+## メインAPI
+
+### `/generate-diary` - 完全な日記生成API
+ユーザー情報取得→会話履歴取得→日記生成の一連の処理を実行
+
+```bash
+POST /generate-diary
+{
+    "userID": "user123",
+    "callID": "call456"
+}
+```
+
+詳細な使用方法は [API_USAGE.md](API_USAGE.md) を参照してください。
 
 ## プロジェクト構成
 
@@ -33,27 +49,54 @@ ai-diary/
 │   ├── gemini_service.py   # Gemini API日記生成サービス
 │   ├── gemini_test.py      # Gemini API動作確認テスト
 │   └── README.md           # パッケージ説明
-├── config.env              # 基本設定
+├── .env                    # 環境設定（ローカル開発用）
+├── config.env              # 基本設定（非推奨）
 ├── requirements.txt        # Python依存関係
-├── start_service.sh        # サービス起動スクリプト
+├── start_service.sh        # サービス起動スクリプト（DB接続チェック付き）
+├── start_cloud_sql_proxy.sh # Cloud SQL Proxy起動ヘルパー（NEW）
+├── check_db_connection.sh  # データベース接続状況チェック（NEW）
 ├── test_service.sh         # テストスクリプト
-├── test_gemini_api.sh      # Gemini APIテストスクリプト (NEW)
+├── test_gemini_api.sh      # Gemini APIテストスクリプト
+├── test_specified_params.sh # 指定パラメータテストスクリプト（NEW）
 ├── venv/                  # Python仮想環境
 └── README.md              # このファイル
 ```
 
 ## 前提条件
 
-1. **Cloud SQL Proxyの起動**が必要です：
-   ```bash
-   cloud_sql_proxy -instances=univac-aiagent:asia-northeast1:cloudsql-01=tcp:3306
-   ```
+⚠️ **重要: データベース接続のための必須手順**
 
-2. **Gemini API キーの設定**が必要です (NEW)：
-   - [Google AI Studio](https://ai.google.dev/) でAPIキーを取得
-   - 環境変数に設定: `export GEMINI_API_KEY=your_api_key_here`
+### 1. Cloud SQL Proxyの起動（必須）
 
-3. **依存関係のインストール**（初回のみ）：
+**データベースを使用するAPIテストの前に、必ずCloud SQL Proxyを起動してください：**
+
+```bash
+# 新しいターミナルを開いて以下を実行（バックグラウンドで常時動作）
+cloud_sql_proxy --instances=univac-aiagent:asia-northeast1:cloudsql-01=tcp:3306
+```
+
+**確認方法：**
+```bash
+# Cloud SQL Proxyが起動しているか確認
+ps aux | grep cloud_sql_proxy | grep -v grep
+
+# 期待する出力例:
+# yasami    12345  0.1  0.2 1234567 89012 ?  S  17:13  0:00 cloud_sql_proxy --instances=...
+```
+
+**注意事項：**
+- Cloud SQL Proxyを起動せずにAPIテストを実行すると「MySQL server connection error」が発生します
+- 一度起動すると、ターミナルを閉じるまで動作し続けます
+- 複数のテストを実行する場合は、同一セッションで実行してください
+
+### 2. Gemini API キーの設定（必須）
+### 2. Gemini API キーの設定（必須）
+
+- [Google AI Studio](https://ai.google.dev/) でAPIキーを取得
+- 環境変数に設定: `export GEMINI_API_KEY=your_api_key_here`
+- または `.env` ファイルに記載済み
+
+### 3. 依存関係のインストール（初回のみ）
    ```bash
    python3 -m venv venv
    source venv/bin/activate
@@ -62,19 +105,42 @@ ai-diary/
 
 ## クイックスタート
 
+### ⚠️ 必読: 初回実行前の準備
+
+**📚 詳細な手順書: [LOCAL_EXECUTION_GUIDE.md](LOCAL_EXECUTION_GUIDE.md)**
+
+**1. データベース接続の準備（必須）**
+```bash
+# ターミナル1: Cloud SQL Proxy起動（常時実行）
+./start_cloud_sql_proxy.sh
+
+# または手動で:
+# cloud_sql_proxy --instances=univac-aiagent:asia-northeast1:cloudsql-01=tcp:3306
+```
+
+**2. 接続状況の確認**
+```bash
+# ターミナル2: 接続状況チェック
+./check_db_connection.sh
+```
+
 ### 1. テスト実行
 
 ```bash
-# 基本機能テスト
+# 基本機能テスト（データベース接続必須）
 ./test_service.sh
 
-# Gemini API動作テスト (NEW)
+# Gemini API動作テスト（データベース接続不要）
 ./test_gemini_api.sh
+
+# 指定パラメータでの完全テスト（データベース接続必須）
+./test_specified_params.sh
 ```
 
 ### 2. サービス起動
 
 ```bash
+# 自動チェック付きサービス起動
 ./start_service.sh
 ```
 
@@ -86,10 +152,7 @@ ai-diary/
 
 ```bash
 source venv/bin/activate
-source config.env
-export DB_PASSWORD="TH8V+cqXJOPqRl3Ez4RAg+mQvnlkQmqh/r14epk2BT0="
-export GOOGLE_CLOUD_PROJECT=univac-aiagent
-export GEMINI_API_KEY=your_api_key_here  # NEW
+source .env
 python main.py
 ```
 

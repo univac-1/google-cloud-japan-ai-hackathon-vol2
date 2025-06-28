@@ -8,11 +8,11 @@ set -e
 echo "=== AI Diary Get Info Service テスト開始 ==="
 
 # 基本設定の読み込み
-if [[ -f "config.env" ]]; then
-    echo "config.envを読み込み中..."
-    source config.env
+if [[ -f ".env" ]]; then
+    echo ".envを読み込み中..."
+    source .env
 else
-    echo "config.envファイルが見つかりません"
+    echo ".envファイルが見つかりません"
     exit 1
 fi
 

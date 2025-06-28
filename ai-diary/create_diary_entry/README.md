@@ -31,7 +31,7 @@ pip install google-genai
 export GEMINI_API_KEY=your_api_key_here
 ```
 
-または、`config.env`ファイルに追記:
+または、`.env`ファイルに追記:
 
 ```
 GEMINI_API_KEY=your_api_key_here

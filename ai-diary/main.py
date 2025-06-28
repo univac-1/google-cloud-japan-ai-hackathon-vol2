@@ -187,8 +187,27 @@ def test_gemini():
 @handle_exceptions
 def generate_diary_endpoint():
     """
-    日記生成エンドポイント
+    完全な日記生成API
     ユーザー情報取得→会話履歴取得→日記生成の一連の処理を実行
+    
+    Request Body:
+    {
+        "userID": "string",
+        "callID": "string"
+    }
+    
+    Response:
+    {
+        "status": "success",
+        "data": {
+            "userID": "string",
+            "callID": "string", 
+            "userInfo": {...},
+            "conversationHistory": {...},
+            "diary": "string"
+        },
+        "message": "string"
+    }
     """
     data = request.get_json()
     
@@ -268,6 +287,8 @@ def get_user_and_conversation():
     """
     メインAPI: ユーザー情報取得→会話履歴取得の統合エンドポイント
     userIDからユーザー情報を取得し、その後userIDとcallIDで会話履歴を取得する
+    
+    注意: 日記生成も含む完全な処理には /generate-diary エンドポイントを使用してください
     """
     data = request.get_json()
     

@@ -136,7 +136,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 # 環境変数読み込み
-source config.env
+source .env
 ```
 
 ### 2. サービス起動

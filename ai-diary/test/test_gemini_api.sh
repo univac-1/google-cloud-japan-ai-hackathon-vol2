@@ -8,11 +8,11 @@ set -e
 echo "=== Gemini API 動作確認テスト ==="
 
 # 基本設定の読み込み
-if [[ -f "config.env" ]]; then
-    echo "config.envを読み込み中..."
-    source config.env
+if [[ -f ".env" ]]; then
+    echo ".envを読み込み中..."
+    source .env
 else
-    echo "config.envファイルが見つかりません"
+    echo ".envファイルが見つかりません"
     exit 1
 fi
 
@@ -37,9 +37,9 @@ if [[ -z "$GEMINI_API_KEY" ]]; then
     echo "2. Google AI Studio でAPIキーを取得"
     echo "3. export GEMINI_API_KEY=your_api_key_here"
     echo ""
-    echo "または、config.envファイルに以下を追記:"
+    echo "または、.envファイルに以下を追記:"
     echo "GEMINI_API_KEY=your_api_key_here"
-    echo "その後、source config.env を実行"
+    echo "その後、source .env を実行"
     exit 1
 fi
 

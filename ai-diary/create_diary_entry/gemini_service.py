@@ -121,32 +121,55 @@ class DiaryGenerator:
     def _format_conversation_history(self, conversation_history: Dict[str, Any]) -> str:
         """会話履歴を読みやすい形式にフォーマット"""
         try:
-            # 会話データの構造に応じて処理
-            conversations = conversation_history.get('conversation', [])
+            # Firestoreから取得される実際の構造に対応
+            # conversation_history -> conversation_history -> conversation の順でアクセス
+            nested_history = conversation_history.get('conversation_history', {})
+            conversations = nested_history.get('conversation', [])
+            
+            # 直接conversationフィールドがある場合もチェック
+            if not conversations:
+                conversations = conversation_history.get('conversation', [])
             
             if not conversations:
+                logger.warning("会話履歴が見つかりません")
                 return ""
             
             formatted_lines = []
             for conv in conversations:
                 if isinstance(conv, dict):
-                    # role と text フィールドがある場合
-                    role = conv.get('role', '')
-                    text = conv.get('text', '')
+                    # Firestoreの実際の構造: speaker, message フィールド
+                    speaker = conv.get('speaker', '')
+                    message = conv.get('message', '')
                     
-                    if role and text:
+                    if speaker and message:
+                        speaker_label = 'AI' if speaker.lower() in ['ai', 'assistant'] else 'ユーザー'
+                        formatted_lines.append(f"{speaker_label}: {message}")
+                    
+                    # 旧形式のサポート: role, text フィールド
+                    elif 'role' in conv and 'text' in conv:
+                        role = conv.get('role', '')
+                        text = conv.get('text', '')
                         role_label = 'AI' if role == 'assistant' else 'ユーザー'
                         formatted_lines.append(f"{role_label}: {text}")
-                    elif text:
-                        formatted_lines.append(text)
+                    
+                    # messageのみの場合
+                    elif message:
+                        formatted_lines.append(message)
+                        
                 elif isinstance(conv, str):
                     formatted_lines.append(conv)
             
+            if not formatted_lines:
+                logger.warning("フォーマット可能な会話データが見つかりません")
+                return ""
+                
             return '\n'.join(formatted_lines)
             
         except Exception as e:
             logger.warning(f"会話履歴のフォーマット中にエラー: {e}")
-            return str(conversation_history)
+            # デバッグ用に構造を出力
+            logger.debug(f"会話履歴の構造: {conversation_history}")
+            return ""
     
     def _create_diary_prompt(self, user_name: str, user_details: str, conversation_text: str) -> str:
         """日記生成用プロンプトを作成"""

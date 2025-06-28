@@ -138,7 +138,19 @@ def health_check():
 
 @app.route("/test-db", methods=["GET"])
 def test_db_connection():
-    """データベース接続テスト"""
+    """
+    データベース接続テスト（メイン・推奨方式）
+    
+    【実装理由】
+    - db-connect-test Cloud Run Jobで実証済みの最も安定したパターンを採用
+    - 最小限のパラメータ（unix_socket, user, password, database, autocommit=True）のみ使用
+    - 複雑な設定を排除することでCloud Run環境での接続エラーを最小化
+    
+    【エラーハンドリング方針】
+    - mysql.connector.Errorのみキャッチし、例外の直接文字列変換を回避
+    - 'MySQLInterfaceError' object has no attribute 'msg' エラーを防止
+    - 安全なエラー情報取得（getattr, type.__name__）を採用
+    """
     try:
         from get_info.db_connection import test_connection
         
@@ -167,7 +179,25 @@ def test_db_connection():
 
 @app.route("/test-db-simple", methods=["GET"])
 def test_db_simple():
-    """軽量なデータベース接続テスト（タイムアウト回避）"""
+    """
+    軽量なデータベース接続テスト（デバッグ・診断用）
+    
+    【実装理由】
+    - 接続問題の詳細な診断とデバッグ情報提供を目的とした実装
+    - 環境変数、unix socket存在確認、接続パラメータの詳細ログ出力
+    - タイムアウト回避のための接続パラメータ調整
+    
+    【使用場面】
+    - メイン接続方式（/test-db）でエラーが発生した際の詳細調査
+    - Cloud Run環境での接続状況の詳細確認
+    - 接続パラメータの妥当性検証
+    
+    【追加パラメータ】
+    - charset: 'utf8mb4' - 日本語対応
+    - auth_plugin: 'mysql_native_password' - 認証方式明示
+    - connection_timeout: 10 - タイムアウト制御
+    - sql_mode: 'TRADITIONAL' - SQLモード設定
+    """
     try:
         import mysql.connector
         from mysql.connector import Error
@@ -277,7 +307,24 @@ def test_db_simple():
 
 @app.route("/test-db-pymysql", methods=["GET"])
 def test_db_pymysql():
-    """PyMySQLでのデータベース接続テスト"""
+    """
+    PyMySQLでのデータベース接続テスト（代替接続方式）
+    
+    【実装理由】
+    - mysql-connector-pythonが利用できない環境での代替手段
+    - より軽量で依存関係が少ないPyMySQLライブラリを使用
+    - mysql-connectorで発生するエラーを回避する目的
+    
+    【使用場面】
+    - mysql-connector-pythonでのエラーが解決できない場合
+    - 軽量な接続方式が必要な場合
+    - 異なるMySQLクライアントでの接続検証
+    
+    【特徴】
+    - DictCursorを使用してレスポンスを辞書形式で取得
+    - connect_timeoutパラメータでタイムアウト制御
+    - 詳細なトレースバック情報出力
+    """
     try:
         import pymysql
         
@@ -491,15 +538,16 @@ def generate_diary_endpoint():
         except ValueError as e:
             error_response, status_code = create_error_response(
                 "GEMINI_API_KEY_ERROR", 
-                f"Gemini APIキーが設定されていません: {str(e)}"
+                f"Gemini APIキーが設定されていません: {type(e).__name__}"
             )
             return jsonify(error_response), status_code
             
     except Exception as e:
-        app.logger.error(f"Diary generation error: {str(e)}")
+        error_type = type(e).__name__
+        app.logger.error(f"Diary generation error: {error_type}")
         error_response, status_code = create_error_response(
             "INTERNAL_ERROR", 
-            f"日記生成処理中にエラーが発生しました: {str(e)}"
+            f"日記生成処理中にエラーが発生しました: {error_type}"
         )
         return jsonify(error_response), status_code
 
@@ -609,7 +657,24 @@ def test_db_debug():
 
 @app.route("/test-db-connector", methods=["GET"])
 def test_db_connector():
-    """Cloud SQL Python Connectorを使用したDB接続テスト"""
+    """
+    Cloud SQL Python Connectorを使用したDB接続テスト（Google推奨方式）
+    
+    【実装理由】
+    - Google Cloud推奨の公式Cloud SQL接続ライブラリを使用
+    - 自動的なSSL/TLS暗号化とIAM認証サポート
+    - Cloud SQLに特化した最適化された接続方式
+    
+    【使用場面】
+    - セキュリティ要件が高い本番環境
+    - IAM認証を使用したい場合
+    - Google推奨の接続方式を採用したい場合
+    
+    【特徴】
+    - google-cloud-sql-python-connectorライブラリを使用
+    - Connector.connect()メソッドで自動接続管理
+    - 証明書管理とSSL暗号化の自動化
+    """
     try:
         from get_info.db_connection_connector import test_connection_with_connector
         

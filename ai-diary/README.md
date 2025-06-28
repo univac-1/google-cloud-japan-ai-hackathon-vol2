@@ -177,9 +177,24 @@ GET /health
 
 ### DB接続テスト
 
+**メイン（推奨）**:
 ```
 GET /test-db
 ```
+
+**デバッグ・診断用**:
+```
+GET /test-db-simple     # 詳細な接続情報とログ出力
+GET /test-db-pymysql    # PyMySQLライブラリを使用
+GET /test-db-connector  # Cloud SQL Python Connector使用
+GET /test-db-debug      # 環境変数と接続設定の詳細確認
+```
+
+**使い分け**:
+- **通常時**: `/test-db` を使用
+- **接続問題発生時**: `/test-db-simple` で詳細診断
+- **代替ライブラリテスト**: `/test-db-pymysql` または `/test-db-connector`
+- **環境設定確認**: `/test-db-debug`
 
 ### Gemini API接続テスト (NEW)
 
@@ -402,6 +417,97 @@ HTML出力例の主要な特徴：
 </body>
 </html>
 ```
+## データベース接続設計
+
+### 接続パターンと理由
+
+ai-diaryプロジェクトでは、Cloud SQL（MySQL）への接続において複数のパターンを実装し、最終的に最も安定した方式を採用しています。
+
+#### 1. メイン接続方式（`/test-db` エンドポイント）
+
+**採用理由**: db-connect-test Cloud Run Jobで実証済みの最も安定したパターン
+
+**実装方針**:
+- **最小限のパラメータ**: `unix_socket`, `user`, `password`, `database`, `autocommit=True` のみ使用
+- **シンプルなエラーハンドリング**: `mysql.connector.Error` のみキャッチし、例外の直接文字列変換を回避
+- **Cloud Run環境特化**: Unix socket接続のみをサポート
+
+```python
+# 成功パターン（get_info/db_connection.py の test_connection()）
+connection = mysql.connector.connect(
+    unix_socket=f"/cloudsql/{project}:asia-northeast1:cloudsql-01",
+    user=os.environ.get('DB_USER'),
+    password=os.environ.get('DB_PASSWORD'),
+    database=os.environ.get('DB_NAME'),
+    autocommit=True
+)
+```
+
+#### 2. 代替接続方式
+
+以下の接続方式も実装していますが、主に互換性確認とデバッグ用途です：
+
+##### a) `/test-db-simple` エンドポイント
+- **特徴**: 詳細な接続パラメータと診断ログ出力
+- **用途**: 接続問題のデバッグと詳細な環境情報確認
+- **追加パラメータ**: `charset`, `auth_plugin`, `connection_timeout`, `sql_mode`
+
+##### b) `/test-db-pymysql` エンドポイント
+- **特徴**: PyMySQLライブラリを使用した接続
+- **用途**: mysql-connectorが利用できない環境での代替手段
+- **利点**: 軽量で依存関係が少ない
+
+##### c) `/test-db-connector` エンドポイント
+- **特徴**: Cloud SQL Python Connectorを使用
+- **用途**: Google Cloud推奨の接続方式
+- **利点**: 自動的なSSL/TLS暗号化とIAM認証サポート
+
+#### 3. エラーハンドリングの進化
+
+**問題**: 初期実装では `'MySQLInterfaceError' object has no attribute 'msg'` エラーが発生
+
+**解決策**:
+1. **例外の直接文字列変換を回避**: `str(e)` → `getattr(e, 'errno', 'N/A')`
+2. **安全なエラー情報取得**: `repr(e)` を try-except ブロック内で使用
+3. **エラータイプ情報の追加**: `type(e).__name__` でエラー種別を明確化
+
+```python
+# 安全なエラーハンドリング
+except mysql.connector.Error as e:
+    logger.error(f"データベースエラー: エラーコード={getattr(e, 'errno', 'N/A')}")
+    return False
+except Exception as e:
+    logger.error(f"予期しないエラー: タイプ={type(e).__name__}")
+    return False
+```
+
+#### 4. 環境対応
+
+**Cloud Run環境**: Unix socket接続（`/cloudsql/project:region:instance`）
+**ローカル開発環境**: TCP接続（`127.0.0.1:3306`）
+
+**判定ロジック**:
+```python
+is_cloud_run = (
+    os.environ.get('K_SERVICE') is not None or      # Cloud Run Service
+    os.environ.get('CLOUD_RUN_JOB') is not None or  # Cloud Run Job
+    os.environ.get('K_CONFIGURATION') is not None   # Cloud Run (一般)
+)
+```
+
+#### 5. 実装の教訓
+
+1. **複雑な設定パラメータは不要**: Cloud Run環境では最小限の設定が最も安定
+2. **例外処理の重要性**: MySQL Connectorの内部実装に依存したエラー情報取得は避ける
+3. **段階的デバッグ**: 複数の接続方式を用意することで問題の切り分けが容易
+4. **実証済みパターンの採用**: 他のプロジェクト（db-connect-test）で成功した方式を基準とする
+
+#### 6. 推奨事項
+
+- **本番環境**: `/test-db` エンドポイントの実装パターンを使用
+- **デバッグ時**: `/test-db-simple` エンドポイントで詳細情報を確認
+- **代替手段**: 環境制約がある場合は `/test-db-pymysql` を検討
+
 ## 技術仕様
 
 - **フレームワーク**: Flask
@@ -421,6 +527,44 @@ HTML出力例の主要な特徴：
 | `GEMINI_API_KEY` | Gemini API キー | ✅ (日記生成機能使用時) |
 
 ## トラブルシューティング
+
+### DB接続関連エラー
+
+#### 1. 'MySQLInterfaceError' object has no attribute 'msg'
+
+**症状**: DB接続テスト時に表示されるエラー
+**原因**: mysql-connector-pythonライブラリ内部で例外オブジェクトの'msg'属性にアクセスしようとするが、該当属性が存在しない
+**解決策**: 
+- main.pyとdb_connection.pyで既に対応済み
+- 例外の直接文字列変換（`str(e)`, `f"{e}"`）を避け、安全な情報取得方式を採用
+- `getattr(e, 'errno', 'N/A')`と`type(e).__name__`を使用
+
+#### 2. MySQL server connection error
+
+**症状**: "Can't connect to MySQL server"エラー
+**原因**: Cloud SQL Proxyが起動していない、または環境変数未設定
+**解決策**:
+1. Cloud SQL Proxyを起動: `cloud_sql_proxy --instances=univac-aiagent:asia-northeast1:cloudsql-01=tcp:3306`
+2. 環境変数を確認: `DB_USER`, `DB_PASSWORD`, `DB_NAME`
+3. プロジェクトIDを確認: `GOOGLE_CLOUD_PROJECT`
+
+#### 3. 接続タイムアウト
+
+**症状**: 接続に時間がかかりタイムアウトする
+**原因**: ネットワーク問題、またはCloud SQL Proxyの応答遅延
+**解決策**:
+1. `/test-db-simple`エンドポイントで詳細な診断情報を確認
+2. `connection_timeout`パラメータを調整（既に10秒に設定済み）
+3. Cloud SQL Proxyを再起動
+
+#### 4. 認証エラー
+
+**症状**: "Access denied for user"エラー
+**原因**: データベースユーザー名・パスワードが正しくない
+**解決策**:
+1. 環境変数の値を確認
+2. anpi-call-dbプロジェクトで設定されたユーザー情報と照合
+3. `/debug-env`エンドポイントで環境変数の設定状況を確認
 
 ### 接続エラーが発生する場合
 

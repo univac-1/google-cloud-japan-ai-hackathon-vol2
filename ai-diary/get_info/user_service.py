@@ -50,7 +50,7 @@ def get_user_info(user_id):
             return None
             
     except Error as e:
-        print(f"ユーザー情報取得エラー: {e}")
+        print(f"ユーザー情報取得エラー: エラーコード={getattr(e, 'errno', 'N/A')}")
         return None
     finally:
         if connection and connection.is_connected():

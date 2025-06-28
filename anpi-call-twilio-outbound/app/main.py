@@ -18,6 +18,7 @@ from typing import Optional
 from agents.call_agent import CallAgent
 from models.server_event_types import ServerEventType
 from analysis.check_call import CallChecker
+import requests
 
 # ログ設定 - デバッグレベルに変更
 logging.basicConfig(
@@ -345,8 +346,37 @@ async def handle_media_stream(websocket: WebSocket):
         # 通話終了後に自動的に通話チェックを実行（非同期・結果待たず）
         if user_id:
             asyncio.create_task(trigger_call_check(user_id))
+            generate_diary(user_id, stream_sid)
         else:
             logger.warning("user_idが設定されていないため通話チェックをスキップします")
+
+
+def generate_diary(user_id: str, call_id: str) -> None:
+    """
+    AI絵日記生成API を呼び出す関数
+
+    :param user_id: ユーザーID
+    :param call_id: 通話ID
+    :return: レスポンスのJSONまたはエラーメッセージ
+    """
+    DIARY_API_URL = "https://ai-diary-894704565810.asia-northeast1.run.app/generate-diary"
+    payload = {
+        "userID": user_id,
+        "callID": call_id
+    }
+    headers = {
+        "Content-Type": "application/json"
+    }
+
+    try:
+        response = requests.post(DIARY_API_URL, json=payload, headers=headers)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.HTTPError as http_err:
+        return {"status": "error", "message": f"HTTP error occurred: {http_err}"}
+    except Exception as err:
+        return {"status": "error", "message": f"Other error occurred: {err}"}
+
 
 
 async def trigger_call_check(user_id: str) -> None:

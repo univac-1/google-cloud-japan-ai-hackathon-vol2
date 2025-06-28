@@ -26,10 +26,13 @@ def test_generate_illustration():
         image_url = generate_illustration(diary_text, user_id, gender, call_id)
         print("✅ 画像生成成功！")
         print("画像URL:", image_url)
+
+        return f"画像生成処理終了： {image_url}"
     except Exception as e:
         print("❌ エラーが発生しました:", str(e))
 
-    return f"画像生成処理終了： {image_url if image_url else "画像URL取得失敗"}"
+        return "Error"
+
 
 
 if __name__ == "__main__":

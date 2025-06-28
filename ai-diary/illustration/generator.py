@@ -21,6 +21,7 @@ def generate_illustration(diary_text: str, user_id: str, gender: str, call_id: s
     images = generation_model.generate_images(
         prompt=prompt,
         number_of_images=1,
+        language="ja",
         aspect_ratio="1:1",
         safety_filter_level="block_some",
         person_generation="allow_all",
@@ -44,8 +45,4 @@ def upload_image_to_gcs(image_bytes: bytes, user_id: str, call_id: str) -> str:
 
     blob.upload_from_file(io.BytesIO(image_bytes), content_type="image/png")
 
-    # 公開設定（バケットが非公開なら必要）
-    blob.make_public()
-
-    # 公開URLを返す
     return blob.public_url

@@ -2,12 +2,115 @@ import os
 
 from illustration.generator import generate_illustration
 from flask import Flask, request, jsonify
+from functools import wraps
+from typing import Dict, Tuple, Any, Optional
 from get_info.user_service import get_user_info
 from get_info.db_connection import test_connection
 from get_history.conversation_service import get_conversation_history
 from get_history.subcollection_conversation_service import SubcollectionConversationHistoryService
 
 app = Flask(__name__)
+
+# ===============================
+# ヘルパー関数
+# ===============================
+
+def validate_request_data(data: Optional[Dict], required_fields: list) -> Tuple[bool, Optional[Dict]]:
+    """
+    リクエストデータのバリデーション
+    
+    Args:
+        data: リクエストデータ
+        required_fields: 必須フィールドのリスト
+        
+    Returns:
+        Tuple[bool, Optional[Dict]]: (検証成功フラグ, エラーレスポンス)
+    """
+    if not data:
+        return False, create_error_response("BAD_REQUEST", "JSONデータが必要です", 400)
+    
+    for field in required_fields:
+        if not data.get(field):
+            return False, create_error_response("BAD_REQUEST", f"{field}が必要です", 400)
+    
+    return True, None
+
+def create_success_response(data: Any, message: str = None) -> Dict:
+    """
+    成功レスポンスの作成
+    
+    Args:
+        data: レスポンスデータ
+        message: オプションメッセージ
+        
+    Returns:
+        Dict: 成功レスポンス
+    """
+    response = {
+        "status": "success",
+        "data": data
+    }
+    if message:
+        response["message"] = message
+    return response
+
+def create_error_response(error_code: str, message: str, status_code: int = 500) -> Tuple[Dict, int]:
+    """
+    エラーレスポンスの作成
+    
+    Args:
+        error_code: エラーコード
+        message: エラーメッセージ
+        status_code: HTTPステータスコード
+        
+    Returns:
+        Tuple[Dict, int]: (エラーレスポンス, HTTPステータスコード)
+    """
+    return {
+        "status": "error",
+        "error_code": error_code,
+        "message": message
+    }, status_code
+
+def get_http_status_from_error_code(error_code: str) -> int:
+    """
+    エラーコードに応じたHTTPステータスコードを取得
+    
+    Args:
+        error_code: エラーコード
+        
+    Returns:
+        int: HTTPステータスコード
+    """
+    status_mapping = {
+        "USER_NOT_FOUND": 404,
+        "CONVERSATION_NOT_FOUND": 404,
+        "USER_MISMATCH": 403,
+        "BAD_REQUEST": 400,
+        "INTERNAL_ERROR": 500
+    }
+    return status_mapping.get(error_code, 500)
+
+def handle_exceptions(f):
+    """
+    例外処理用デコレータ
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        try:
+            return f(*args, **kwargs)
+        except Exception as e:
+            app.logger.error(f"Unexpected error in {f.__name__}: {str(e)}")
+            error_response, status_code = create_error_response(
+                "INTERNAL_ERROR", 
+                f"処理中にエラーが発生しました: {str(e)}"
+            )
+            return jsonify(error_response), status_code
+    return decorated_function
+
+# ===============================
+# エンドポイント
+# ===============================
 
 @app.route("/")
 def hello_world():
@@ -40,197 +143,165 @@ def test_generate_illustration():
 @app.route("/health", methods=["GET"])
 def health_check():
     """ヘルスチェック"""
-    return {"status": "healthy", "service": "ai-diary-get-info"}
+    return create_success_response({"service": "ai-diary-get-info"}, "healthy")
 
 @app.route("/test-db", methods=["GET"])
 def test_db():
     """DB接続テスト"""
     if test_connection():
-        return {"status": "success", "message": "DB接続成功"}
+        return create_success_response(None, "DB接続成功")
     else:
-        return {"status": "error", "message": "DB接続失敗"}, 500
+        error_response, status_code = create_error_response("DB_CONNECTION_ERROR", "DB接続失敗")
+        return jsonify(error_response), status_code
+
+@app.route("/get-user-and-conversation", methods=["POST"])
+@handle_exceptions
+def get_user_and_conversation():
+    """
+    メインAPI: ユーザー情報取得→会話履歴取得の統合エンドポイント
+    userIDからユーザー情報を取得し、その後userIDとcallIDで会話履歴を取得する
+    """
+    data = request.get_json()
+    
+    # リクエストデータの検証
+    is_valid, error_response = validate_request_data(data, ["userID", "callID"])
+    if not is_valid:
+        return jsonify(error_response[0]), error_response[1]
+    
+    user_id = data["userID"]
+    call_id = data["callID"]
+    
+    # Step 1: ユーザー情報取得
+    user_info = get_user_info(user_id)
+    if not user_info:
+        error_response, status_code = create_error_response(
+            "USER_NOT_FOUND", 
+            "ユーザーが見つかりませんでした"
+        )
+        return jsonify(error_response), status_code
+    
+    # Step 2: 会話履歴取得 (サブコレクション構造を使用)
+    service = SubcollectionConversationHistoryService()
+    success, conversation_data, error_code = service.get_conversation_history(user_id, call_id)
+    
+    if not success:
+        status_code = get_http_status_from_error_code(error_code)
+        error_response, _ = create_error_response(error_code, "会話履歴の取得に失敗しました")
+        return jsonify(error_response), status_code
+    
+    # 成功レスポンス
+    response_data = {
+        "userID": user_id,
+        "callID": call_id,
+        "userInfo": user_info,
+        "conversationHistory": conversation_data
+    }
+    
+    return jsonify(create_success_response(response_data, "ユーザー情報と会話履歴を正常に取得しました"))
+
+# ===============================
+# 互換性のための個別エンドポイント (レガシー)
+# ===============================
 
 @app.route("/get-user-info", methods=["POST"])
+@handle_exceptions
 def get_user_info_endpoint():
-    """ユーザー情報取得エンドポイント"""
-    try:
-        # リクエストからuserIDとcallIDを取得
-        data = request.get_json()
-        if not data:
-            return {"error": "JSONデータが必要です"}, 400
-        
-        user_id = data.get("userID")
-        call_id = data.get("callID")
-        
-        if not user_id:
-            return {"error": "userIDが必要です"}, 400
-        
-        if not call_id:
-            return {"error": "callIDが必要です"}, 400
-        
-        # ユーザー情報を取得
-        user_info = get_user_info(user_id)
-        
-        if user_info:
-            response = {
-                "status": "success",
-                "userID": user_id,
-                "callID": call_id,
-                "userInfo": user_info
-            }
-            return jsonify(response)
-        else:
-            return {
-                "status": "error",
-                "userID": user_id,
-                "callID": call_id,
-                "message": "ユーザーが見つかりませんでした"
-            }, 404
-            
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": f"処理中にエラーが発生しました: {str(e)}"
-        }, 500
-
-@app.route("/get-conversation-history", methods=["POST"])
-def get_conversation_history_endpoint():
-    """会話履歴取得エンドポイント"""
-    try:
-        # リクエストからuserIDとcallIDを取得
-        data = request.get_json()
-        if not data:
-            return {"error": "JSONデータが必要です"}, 400
-        
-        user_id = data.get("userID")
-        call_id = data.get("callID")
-        
-        if not user_id:
-            return {"error": "userIDが必要です"}, 400
-        
-        if not call_id:
-            return {"error": "callIDが必要です"}, 400
-        
-        # 会話履歴を取得
-        result = get_conversation_history(user_id, call_id)
-        
-        # レスポンスのステータスに応じてHTTPステータスコードを設定
-        if result["status"] == "success":
-            return jsonify(result), 200
-        else:
-            # エラーコードに応じてHTTPステータスコードを調整
-            error_code = result.get("error_code", "UNKNOWN_ERROR")
-            if error_code == "USER_NOT_FOUND":
-                return jsonify(result), 404
-            elif error_code == "CONVERSATION_NOT_FOUND":
-                return jsonify(result), 404
-            elif error_code == "USER_MISMATCH":
-                return jsonify(result), 403
-            else:
-                return jsonify(result), 500
-            
-    except Exception as e:
-        return {
-            "status": "error",
-            "error_code": "INTERNAL_ERROR",
-            "message": f"処理中にエラーが発生しました: {str(e)}"
-        }, 500
+    """ユーザー情報取得エンドポイント (レガシー互換性のため残存)"""
+    data = request.get_json()
+    
+    is_valid, error_response = validate_request_data(data, ["userID", "callID"])
+    if not is_valid:
+        return jsonify(error_response[0]), error_response[1]
+    
+    user_id = data["userID"]
+    call_id = data["callID"]
+    
+    user_info = get_user_info(user_id)
+    if user_info:
+        response_data = {
+            "userID": user_id,
+            "callID": call_id,
+            "userInfo": user_info
+        }
+        return jsonify(create_success_response(response_data))
+    else:
+        error_response, status_code = create_error_response(
+            "USER_NOT_FOUND", 
+            "ユーザーが見つかりませんでした"
+        )
+        return jsonify(error_response), status_code
 
 @app.route("/get-conversation-history-v2", methods=["POST"])
+@handle_exceptions
 def get_conversation_history_v2_endpoint():
-    """サブコレクション構造対応の会話履歴取得エンドポイント (users/{userID}/calls/{callID})"""
-    try:
-        # リクエストからuserIDとcallIDを取得
-        data = request.get_json()
-        if not data:
-            return {"error": "JSONデータが必要です"}, 400
-        
-        user_id = data.get("userID")
-        call_id = data.get("callID")
-        
-        if not user_id:
-            return {"error": "userIDが必要です"}, 400
-        
-        if not call_id:
-            return {"error": "callIDが必要です"}, 400
-        
-        # サブコレクション対応サービスで会話履歴を取得
-        service = SubcollectionConversationHistoryService()
-        success, response_data, error_code = service.get_conversation_history(user_id, call_id)
-        
-        if success:
-            result = {
-                "status": "success",
-                "data": response_data
-            }
-            return jsonify(result), 200
-        else:
-            # エラーコードに応じてHTTPステータスコードを調整
-            result = {
-                "status": "error",
-                "error_code": error_code,
-                "message": f"会話履歴の取得に失敗しました"
-            }
-            
-            if error_code == "USER_NOT_FOUND":
-                return jsonify(result), 404
-            elif error_code == "CONVERSATION_NOT_FOUND":
-                return jsonify(result), 404
-            elif error_code == "USER_MISMATCH":
-                return jsonify(result), 403
-            else:
-                return jsonify(result), 500
-            
-    except Exception as e:
-        return {
-            "status": "error",
-            "error_code": "INTERNAL_ERROR",
-            "message": f"処理中にエラーが発生しました: {str(e)}"
-        }, 500
+    """会話履歴取得エンドポイント (レガシー互換性のため残存)"""
+    data = request.get_json()
+    
+    is_valid, error_response = validate_request_data(data, ["userID", "callID"])
+    if not is_valid:
+        return jsonify(error_response[0]), error_response[1]
+    
+    user_id = data["userID"]
+    call_id = data["callID"]
+    
+    service = SubcollectionConversationHistoryService()
+    success, response_data, error_code = service.get_conversation_history(user_id, call_id)
+    
+    if success:
+        return jsonify(create_success_response(response_data))
+    else:
+        status_code = get_http_status_from_error_code(error_code)
+        error_response, _ = create_error_response(error_code, "会話履歴の取得に失敗しました")
+        return jsonify(error_response), status_code
 
 @app.route("/get-user-calls", methods=["POST"])
+@handle_exceptions
 def get_user_calls_endpoint():
     """指定ユーザーのすべての会話履歴取得エンドポイント"""
-    try:
-        # リクエストからuserIDを取得
-        data = request.get_json()
-        if not data:
-            return {"error": "JSONデータが必要です"}, 400
-        
-        user_id = data.get("userID")
-        
-        if not user_id:
-            return {"error": "userIDが必要です"}, 400
-        
-        # サブコレクション対応サービスですべての会話履歴を取得
-        service = SubcollectionConversationHistoryService()
-        success, response_data, error_code = service.get_user_all_calls(user_id)
-        
-        if success:
-            result = {
-                "status": "success",
-                "data": response_data
-            }
-            return jsonify(result), 200
-        else:
-            result = {
-                "status": "error",
-                "error_code": error_code,
-                "message": f"会話履歴の取得に失敗しました"
-            }
-            
-            if error_code == "USER_NOT_FOUND":
-                return jsonify(result), 404
-            else:
-                return jsonify(result), 500
-            
-    except Exception as e:
-        return {
-            "status": "error",
-            "error_code": "INTERNAL_ERROR",
-            "message": f"処理中にエラーが発生しました: {str(e)}"
-        }, 500
+    data = request.get_json()
+    
+    is_valid, error_response = validate_request_data(data, ["userID"])
+    if not is_valid:
+        return jsonify(error_response[0]), error_response[1]
+    
+    user_id = data["userID"]
+    
+    service = SubcollectionConversationHistoryService()
+    success, response_data, error_code = service.get_user_all_calls(user_id)
+    
+    if success:
+        return jsonify(create_success_response(response_data))
+    else:
+        status_code = get_http_status_from_error_code(error_code)
+        error_response, _ = create_error_response(error_code, "会話履歴の取得に失敗しました")
+        return jsonify(error_response), status_code
+
+# ===============================
+# 非推奨エンドポイント (互換性のためのみ)
+# ===============================
+
+@app.route("/get-conversation-history", methods=["POST"])
+@handle_exceptions
+def get_conversation_history_endpoint():
+    """会話履歴取得エンドポイント (非推奨 - v2を使用してください)"""
+    data = request.get_json()
+    
+    is_valid, error_response = validate_request_data(data, ["userID", "callID"])
+    if not is_valid:
+        return jsonify(error_response[0]), error_response[1]
+    
+    user_id = data["userID"]
+    call_id = data["callID"]
+    
+    result = get_conversation_history(user_id, call_id)
+    
+    if result["status"] == "success":
+        return jsonify(result), 200
+    else:
+        error_code = result.get("error_code", "UNKNOWN_ERROR")
+        status_code = get_http_status_from_error_code(error_code)
+        return jsonify(result), status_code
 
 if __name__ == "__main__":
-    print("AI Diary Get Info Service starting...")
+    print("AI Diary Service starting...")
     app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

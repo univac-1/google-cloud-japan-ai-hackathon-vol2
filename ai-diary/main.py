@@ -9,7 +9,7 @@ app = Flask(__name__)
 def hello_world():
     """Example endpoint."""
     name = os.environ.get("NAME", "World")
-    print("test")
+    app.logger.info("test")
     return f"Hello, {name}!"
 
 

@@ -45,7 +45,7 @@ def upload_image_to_gcs(image_bytes: bytes, user_id: str, call_id: str) -> str:
     blob.upload_from_file(io.BytesIO(image_bytes), content_type="image/png")
 
     # 公開設定（バケットが非公開なら必要）
-    # blob.make_public()
+    blob.make_public()
 
     # 公開URLを返す
     return blob.public_url

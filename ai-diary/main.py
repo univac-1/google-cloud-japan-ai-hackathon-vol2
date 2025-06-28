@@ -29,6 +29,8 @@ def test_generate_illustration():
     except Exception as e:
         print("❌ エラーが発生しました:", str(e))
 
+    return f"画像生成処理終了： {image_url if image_url else "画像URL取得失敗"}"
+
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

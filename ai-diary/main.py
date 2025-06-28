@@ -1,5 +1,22 @@
 import os
 
+# .envファイルから環境変数を読み込み
+def load_env_file():
+    """
+    .envファイルから環境変数を読み込む
+    """
+    env_path = os.path.join(os.path.dirname(__file__), '.env')
+    if os.path.exists(env_path):
+        with open(env_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    os.environ[key] = value
+
+# 環境変数読み込み実行
+load_env_file()
+
 from illustration.generator import generate_illustration
 from flask import Flask, request, jsonify
 from functools import wraps
@@ -188,7 +205,7 @@ def test_gemini():
 def generate_diary_endpoint():
     """
     完全な日記生成API
-    ユーザー情報取得→会話履歴取得→日記生成の一連の処理を実行
+    ユーザー情報取得→会話履歴取得→日記生成→挿絵作成の一連の処理を実行
     
     Request Body:
     {
@@ -204,7 +221,8 @@ def generate_diary_endpoint():
             "callID": "string", 
             "userInfo": {...},
             "conversationHistory": {...},
-            "diary": "string"
+            "diary": "string",
+            "illustrationUrl": "string" or null
         },
         "message": "string"
     }
@@ -252,18 +270,31 @@ def generate_diary_endpoint():
                 )
                 return jsonify(error_response), status_code
             
+            # Step 4: 挿絵作成
+            illustration_url = None
+            try:
+                # ユーザー情報から性別を取得（デフォルトは'unknown'）
+                gender = user_info.get('gender', 'unknown')
+                illustration_url = generate_illustration(diary_text, user_id, gender, call_id)
+                app.logger.info(f"Illustration generated successfully: {illustration_url}")
+            except Exception as illustration_error:
+                # 挿絵生成エラーは警告ログに記録するが、処理は継続
+                app.logger.warning(f"Illustration generation failed: {str(illustration_error)}")
+                illustration_url = None
+            
             # 成功レスポンス
             response_data = {
                 "userID": user_id,
                 "callID": call_id,
                 "userInfo": user_info,
                 "conversationHistory": conversation_data,
-                "diary": diary_text
+                "diary": diary_text,
+                "illustrationUrl": illustration_url
             }
             
             return jsonify(create_success_response(
                 response_data, 
-                "ユーザー情報、会話履歴、日記を正常に生成しました"
+                "ユーザー情報、会話履歴、日記、挿絵を正常に生成しました"
             ))
             
         except ValueError as e:

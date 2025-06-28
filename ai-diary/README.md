@@ -1,20 +1,21 @@
 # AI Diary Service
 
-ユーザー情報取得 + 会話履歴取得 + AI日記生成の統合APIサービス
+ユーザー情報取得 + 会話履歴取得 + AI日記生成 + 挿絵作成の統合APIサービス
 
 ## 概要
 
 - userIDとcallIDを受け取り、以下の一連の処理を実行：
   1. userIDをもとにRDBからユーザー情報を取得
   2. userIDとcallIDをもとにFirestoreから会話履歴を取得  
-  3. **NEW**: 取得した情報を使ってGemini APIで家族向けの日記風文章を生成
+  3. 取得した情報を使ってGemini APIで家族向けの日記風文章を生成
+  4. **NEW**: 日記文章とユーザー情報をもとにVertex AI Imagenで挿絵を生成
 - anpi-call-dbで作成されたCloud SQL for MySQLに接続
 - Flask RESTful APIとして実装
 
 ## メインAPI
 
 ### `/generate-diary` - 完全な日記生成API
-ユーザー情報取得→会話履歴取得→日記生成の一連の処理を実行
+ユーザー情報取得→会話履歴取得→日記生成→挿絵作成の一連の処理を実行
 
 ```bash
 POST /generate-diary
@@ -44,10 +45,14 @@ ai-diary/
 │   ├── subcollection_conversation_service.py # サブコレクション会話履歴サービス
 │   ├── test_api.py         # API総合テスト
 │   └── README.md           # パッケージ説明
-├── create_diary_entry/     # 日記生成処理パッケージ (NEW)
+├── create_diary_entry/     # 日記生成処理パッケージ
 │   ├── __init__.py         # パッケージ初期化
 │   ├── gemini_service.py   # Gemini API日記生成サービス
 │   ├── gemini_test.py      # Gemini API動作確認テスト
+│   └── README.md           # パッケージ説明
+├── illustration/           # 挿絵生成処理パッケージ (NEW)
+│   ├── generator.py        # Vertex AI Imagen挿絵生成
+│   └── prompt_builder.py   # 挿絵生成プロンプト構築
 │   └── README.md           # パッケージ説明
 ├── .env                    # 環境設定（ローカル開発用）
 ├── config.env              # 基本設定（非推奨）

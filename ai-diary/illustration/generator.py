@@ -6,7 +6,7 @@ from google.cloud import storage
 import io
 
 PROJECT_ID = "univac-aiagent"
-BUCKET_NAME = "ai-diary"
+BUCKET_NAME = "eniki-completed"
 
 def generate_illustration(diary_text: str, user_id: str, gender: str, call_id: str) -> str:
     """

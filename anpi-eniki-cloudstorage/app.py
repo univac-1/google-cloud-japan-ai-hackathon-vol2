@@ -1,7 +1,5 @@
-import datetime
 import logging
 import os
-import uuid
 
 from flask import Flask, jsonify, request
 from google.cloud import storage
@@ -30,7 +28,7 @@ image_bucket = storage_client.bucket(IMAGE_BUCKET_NAME)
 
 @app.route("/process-text", methods=["POST"])
 def process_text():
-    # --- テキストコンテンツの取得 ---
+    """テキストからHTMLの生成"""
     text_content = ""
     if "text_content" in request.form:
         text_content = request.form["text_content"]
@@ -68,39 +66,15 @@ def process_text():
     # --- HTMLコンテンツの生成 (新しい関数に委譲) ---
     # generate_html_content 関数を呼び出し
     html_content = generate_html_content(text_content, image_url)
-
-    # --- HTMLファイルのGCSへの書き込み ---
-    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-    unique_id = str(uuid.uuid4())[:8]
-    output_file_name = f"eniki/{timestamp}-{unique_id}.html"
-
-    output_blob = output_bucket.blob(output_file_name)
-    try:
-        output_blob.upload_from_string(
-            html_content, content_type="text/html; charset=UTF-8"
-        )
-        print(f"Successfully uploaded {output_file_name} to GCS.")
-
-        public_url = (
-            f"https://storage.googleapis.com/{OUTPUT_BUCKET_NAME}/{output_file_name}"
-        )
-        return (
-            jsonify(
-                {
-                    "message": "Content processed and uploaded to GCS successfully.",
-                    "output_url": public_url,
-                    "image_url_if_uploaded": image_url,
-                    "content": html_content,
-                }
-            ),
-            200,
-        )
-    except Exception as e:
-        print(f"Error uploading HTML to GCS: {e}")
-        return (
-            jsonify({"error": "Failed to upload HTML to GCS.", "details": str(e)}),
-            500,
-        )
+    return (
+        jsonify(
+            {
+                "message": "Content processed and uploaded to GCS successfully.",
+                "content": html_content,
+            }
+        ),
+        200,
+    )
 
 
 def health_check():

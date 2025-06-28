@@ -1,64 +1,6 @@
 import datetime
-import uuid
 
 from google.cloud import storage
-from werkzeug.datastructures import (
-    FileStorage,
-)  # Flaskのリクエストファイルオブジェクトの型ヒント用
-
-# --- 画像タイプを判別する補助関数 ---
-# よく使われる画像形式のマジックバイトを定義
-# より多くの形式に対応するには、ここに追加
-IMAGE_SIGNATURES = {
-    b"\xff\xd8\xff": "jpeg",
-    b"\x89PNG\r\n\x1a\n": "png",
-    b"GIF87a": "gif",
-    b"GIF89a": "gif",
-    b"BM": "bmp",  # BMPはサイズ情報も含むため、完全な判別には追加ロジックが必要な場合も
-    b"RIFF....WEBPVP8": "webp",  # WEBPもバリアントがあるため、完璧ではない
-}
-
-
-def get_image_type_from_bytes(image_bytes: bytes) -> str | None:
-    """
-    バイト列の先頭数バイトから画像タイプを判別します。
-    """
-    for signature, img_type in IMAGE_SIGNATURES.items():
-        if image_bytes.startswith(signature):
-            return img_type
-    return None
-
-
-def upload_image_to_gcs(
-    image_file: FileStorage, image_bucket: storage.Bucket
-) -> str | None:
-    """
-    画像をGCSにアップロードし、その公開URLを返します。
-    失敗した場合はNoneを返します。
-    """
-    try:
-        image_bytes = image_file.read()
-        # 新しい補助関数で画像タイプを判別
-        image_type = get_image_type_from_bytes(image_bytes)
-
-        if not image_type:
-            print("Uploaded file is not a recognized image type.")
-            return None
-
-        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-        unique_id = str(uuid.uuid4())[:8]
-        image_filename_in_gcs = f"B/images/{timestamp}-{unique_id}.{image_type}"
-
-        image_blob = image_bucket.blob(image_filename_in_gcs)
-        image_blob.upload_from_string(image_bytes, content_type=f"image/{image_type}")
-        # image_blob.make_public() # バケット全体が公開なら不要
-
-        image_url = f"https://storage.googleapis.com/{image_bucket.name}/{image_filename_in_gcs}"
-        print(f"Image uploaded to GCS: {image_url}")
-        return image_url
-    except Exception as e:
-        print(f"Error uploading image to GCS: {e}")
-        return None
 
 
 def check_image_exists_in_gcs(
@@ -88,23 +30,125 @@ def check_image_exists_in_gcs(
 def generate_html_content(text_content: str, image_url: str | None) -> str:
     """
     テキストと画像URLからHTMLコンテンツを生成します。
+    プロダクションレベルの絵日記にふさわしいデザインを適用します。
     """
     image_html = ""
+    # 画像URLが提供されている場合のみimgタグを生成
     if image_url:
-        image_html = f'<p><img src="{image_url}" alt="Uploaded Image" style="max-width:100%; height:auto;"></p>'
+        image_html = f"""
+            <div class="diary-image-wrapper">
+                <img src="{image_url}" alt="AI生成画像">
+            </div>
+        """
 
+    # 現在の日付を取得し、日本語形式にフォーマット
+    current_date = datetime.date.today().strftime("%Y年%m月%d日")
+
+    # HTMLコンテンツを構築
     html = f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Processed Content</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI絵日記</title>
+    <style>
+        /* Basic Reset & Font */
+        body {{
+            font-family: 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f8f8f8; /* Light grey background */
+            color: #333;
+        }}
+
+        /* Container for the diary entry */
+        .diary-container {{
+            max-width: 800px;
+            margin: 40px auto;
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            padding: 30px 40px;
+            box-sizing: border-box; /* Include padding in width/height */
+        }}
+
+        /* Header */
+        .diary-header {{
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 20px;
+        }}
+
+        .diary-header h1 {{
+            font-size: 2.5em;
+            color: #4a4a4a;
+            margin: 0;
+            font-weight: 700;
+        }}
+
+        /* Image Styling */
+        .diary-image-wrapper {{
+            text-align: center;
+            margin-bottom: 30px;
+        }}
+
+        .diary-image-wrapper img {{
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.1);
+            border: 1px solid #ddd;
+            display: block; /* Remove extra space below image */
+            margin: 0 auto; /* Center image */
+        }}
+
+        /* Text Content Styling */
+        .diary-content {{
+            background-color: #fdfdfd;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 25px;
+            line-height: 1.8;
+            font-size: 1.1em;
+            color: #555;
+            white-space: pre-wrap; /* Preserve whitespace and wrap lines */
+            word-wrap: break-word; /* Break long words */
+        }}
+
+        /* For pre tag specifically, if user wants to keep it */
+        .diary-content pre {{
+            margin: 0; /* Remove default pre margin */
+            font-family: inherit; /* Inherit font from body */
+            white-space: pre-wrap; /* Ensure pre content wraps */
+            word-wrap: break-word;
+        }}
+
+        /* Footer */
+        .diary-footer {{
+            text-align: right;
+            margin-top: 30px;
+            font-size: 0.9em;
+            color: #888;
+        }}
+    </style>
 </head>
 <body>
-<h1>AI絵日記</h1>
-{image_html}
-<pre>
-{text_content}
-</pre>
+    <div class="diary-container">
+        <header class="diary-header">
+            <h1>AI絵日記</h1>
+        </header>
+        <main>
+            {image_html}
+            <div class="diary-content">
+                <pre>{text_content}</pre>
+            </div>
+        </main>
+        <footer class="diary-footer">
+            <p>日付: {current_date}</p>
+        </footer>
+    </div>
 </body>
 </html>"""
     return html

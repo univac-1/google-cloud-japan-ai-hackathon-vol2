@@ -8,6 +8,7 @@ from get_info.user_service import get_user_info
 from get_info.db_connection import test_connection
 from get_history.conversation_service import get_conversation_history
 from get_history.subcollection_conversation_service import SubcollectionConversationHistoryService
+from create_diary_entry import DiaryGenerator
 
 app = Flask(__name__)
 
@@ -87,7 +88,8 @@ def get_http_status_from_error_code(error_code: str) -> int:
         "CONVERSATION_NOT_FOUND": 404,
         "USER_MISMATCH": 403,
         "BAD_REQUEST": 400,
-        "INTERNAL_ERROR": 500
+        "INTERNAL_ERROR": 500,
+        "DIARY_GENERATION_ERROR": 500
     }
     return status_mapping.get(error_code, 500)
 
@@ -152,6 +154,112 @@ def test_db():
         return create_success_response(None, "DB接続成功")
     else:
         error_response, status_code = create_error_response("DB_CONNECTION_ERROR", "DB接続失敗")
+        return jsonify(error_response), status_code
+
+@app.route("/test-gemini", methods=["GET"])
+@handle_exceptions
+def test_gemini():
+    """Gemini API接続テスト"""
+    try:
+        generator = DiaryGenerator()
+        if generator.test_generation():
+            return create_success_response(None, "Gemini API接続成功")
+        else:
+            error_response, status_code = create_error_response(
+                "GEMINI_CONNECTION_ERROR", 
+                "Gemini API接続失敗"
+            )
+            return jsonify(error_response), status_code
+    except ValueError as e:
+        error_response, status_code = create_error_response(
+            "GEMINI_API_KEY_ERROR", 
+            f"Gemini APIキー設定エラー: {str(e)}"
+        )
+        return jsonify(error_response), status_code
+    except Exception as e:
+        error_response, status_code = create_error_response(
+            "GEMINI_CONNECTION_ERROR", 
+            f"Gemini API接続エラー: {str(e)}"
+        )
+        return jsonify(error_response), status_code
+
+@app.route("/generate-diary", methods=["POST"])
+@handle_exceptions
+def generate_diary_endpoint():
+    """
+    日記生成エンドポイント
+    ユーザー情報取得→会話履歴取得→日記生成の一連の処理を実行
+    """
+    data = request.get_json()
+    
+    # リクエストデータの検証
+    is_valid, error_response = validate_request_data(data, ["userID", "callID"])
+    if not is_valid:
+        return jsonify(error_response[0]), error_response[1]
+    
+    user_id = data["userID"]
+    call_id = data["callID"]
+    
+    try:
+        # Step 1: ユーザー情報取得
+        user_info = get_user_info(user_id)
+        if not user_info:
+            error_response, status_code = create_error_response(
+                "USER_NOT_FOUND", 
+                "ユーザーが見つかりませんでした"
+            )
+            return jsonify(error_response), status_code
+        
+        # Step 2: 会話履歴取得
+        service = SubcollectionConversationHistoryService()
+        success, conversation_data, error_code = service.get_conversation_history(user_id, call_id)
+        
+        if not success:
+            status_code = get_http_status_from_error_code(error_code)
+            error_response, _ = create_error_response(error_code, "会話履歴の取得に失敗しました")
+            return jsonify(error_response), status_code
+        
+        # Step 3: 日記生成
+        try:
+            generator = DiaryGenerator()
+            diary_success, diary_text, diary_error = generator.generate_diary_entry(
+                user_info, conversation_data
+            )
+            
+            if not diary_success:
+                error_response, status_code = create_error_response(
+                    "DIARY_GENERATION_ERROR", 
+                    f"日記生成に失敗しました: {diary_error}"
+                )
+                return jsonify(error_response), status_code
+            
+            # 成功レスポンス
+            response_data = {
+                "userID": user_id,
+                "callID": call_id,
+                "userInfo": user_info,
+                "conversationHistory": conversation_data,
+                "diary": diary_text
+            }
+            
+            return jsonify(create_success_response(
+                response_data, 
+                "ユーザー情報、会話履歴、日記を正常に生成しました"
+            ))
+            
+        except ValueError as e:
+            error_response, status_code = create_error_response(
+                "GEMINI_API_KEY_ERROR", 
+                f"Gemini APIキーが設定されていません: {str(e)}"
+            )
+            return jsonify(error_response), status_code
+            
+    except Exception as e:
+        app.logger.error(f"Diary generation error: {str(e)}")
+        error_response, status_code = create_error_response(
+            "INTERNAL_ERROR", 
+            f"日記生成処理中にエラーが発生しました: {str(e)}"
+        )
         return jsonify(error_response), status_code
 
 @app.route("/get-user-and-conversation", methods=["POST"])

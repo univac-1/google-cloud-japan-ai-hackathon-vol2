@@ -1,30 +1,45 @@
 # AI Diary Service
 
-ユーザー情報取得APIサービス
+ユーザー情報取得APIサービス + 日記生成機能
 
 ## 概要
 
 - userIDとcallIDを受け取り、userIDをもとにRDBからユーザー情報を取得するAPIサービス
 - anpi-call-dbで作成されたCloud SQL for MySQLに接続してユーザー情報を取得
+- Firestoreから会話履歴を取得
+- **NEW**: Gemini APIを使用して家族向けの日記風文章を生成
 - Flask RESTful APIとして実装
 
 ## プロジェクト構成
 
 ```
 ai-diary/
-├── main.py              # メインAPIサーバー（Flask）
-├── get-info/            # ユーザー情報取得処理パッケージ
-│   ├── __init__.py      # パッケージ初期化
-│   ├── db_connection.py # DB接続処理
-│   ├── user_service.py  # ユーザー情報取得処理
-│   ├── test_service.py  # テストスクリプト
-│   └── README.md        # パッケージ説明
-├── config.env           # 基本設定
-├── requirements.txt     # Python依存関係
-├── start_service.sh     # サービス起動スクリプト
-├── test_service.sh      # テストスクリプト
-├── venv/               # Python仮想環境
-└── README.md           # このファイル
+├── main.py                  # メインAPIサーバー（Flask）
+├── get_info/               # ユーザー情報取得処理パッケージ
+│   ├── __init__.py         # パッケージ初期化
+│   ├── db_connection.py    # DB接続処理
+│   ├── user_service.py     # ユーザー情報取得処理
+│   ├── test_service.py     # テストスクリプト
+│   └── README.md           # パッケージ説明
+├── get_history/            # 会話履歴取得処理パッケージ
+│   ├── __init__.py         # パッケージ初期化
+│   ├── firestore_info.py   # Firestore接続・情報確認
+│   ├── conversation_service.py    # 会話履歴取得サービス
+│   ├── subcollection_conversation_service.py # サブコレクション会話履歴サービス
+│   ├── test_api.py         # API総合テスト
+│   └── README.md           # パッケージ説明
+├── create_diary_entry/     # 日記生成処理パッケージ (NEW)
+│   ├── __init__.py         # パッケージ初期化
+│   ├── gemini_service.py   # Gemini API日記生成サービス
+│   ├── gemini_test.py      # Gemini API動作確認テスト
+│   └── README.md           # パッケージ説明
+├── config.env              # 基本設定
+├── requirements.txt        # Python依存関係
+├── start_service.sh        # サービス起動スクリプト
+├── test_service.sh         # テストスクリプト
+├── test_gemini_api.sh      # Gemini APIテストスクリプト (NEW)
+├── venv/                  # Python仮想環境
+└── README.md              # このファイル
 ```
 
 ## 前提条件
@@ -34,7 +49,11 @@ ai-diary/
    cloud_sql_proxy -instances=univac-aiagent:asia-northeast1:cloudsql-01=tcp:3306
    ```
 
-2. **依存関係のインストール**（初回のみ）：
+2. **Gemini API キーの設定**が必要です (NEW)：
+   - [Google AI Studio](https://ai.google.dev/) でAPIキーを取得
+   - 環境変数に設定: `export GEMINI_API_KEY=your_api_key_here`
+
+3. **依存関係のインストール**（初回のみ）：
    ```bash
    python3 -m venv venv
    source venv/bin/activate
@@ -46,7 +65,11 @@ ai-diary/
 ### 1. テスト実行
 
 ```bash
+# 基本機能テスト
 ./test_service.sh
+
+# Gemini API動作テスト (NEW)
+./test_gemini_api.sh
 ```
 
 ### 2. サービス起動
@@ -55,7 +78,7 @@ ai-diary/
 ./start_service.sh
 ```
 
-サービスは http://localhost:8081 で起動します。
+サービスは http://localhost:8080 で起動します。
 
 ## 手動実行方法
 
@@ -66,6 +89,7 @@ source venv/bin/activate
 source config.env
 export DB_PASSWORD="TH8V+cqXJOPqRl3Ez4RAg+mQvnlkQmqh/r14epk2BT0="
 export GOOGLE_CLOUD_PROJECT=univac-aiagent
+export GEMINI_API_KEY=your_api_key_here  # NEW
 python main.py
 ```
 
@@ -83,10 +107,16 @@ GET /health
 GET /test-db
 ```
 
-### ユーザー情報取得
+### Gemini API接続テスト (NEW)
 
 ```
-POST /get-user-info
+GET /test-gemini
+```
+
+### 日記生成 (NEW) - 推奨エンドポイント
+
+```
+POST /generate-diary
 Content-Type: application/json
 
 {
@@ -100,26 +130,72 @@ Content-Type: application/json
 ```json
 {
   "status": "success",
-  "userID": "test-user-001",
-  "callID": "call-12345",
-  "userInfo": {
-    "user_id": "test-user-001",
-    "last_name": "山田",
-    "first_name": "太郎",
-    "phone_number": "090-1234-5678",
-    "address": "東京都渋谷区..."
-  }
+  "data": {
+    "userID": "test-user-001",
+    "callID": "call-12345",
+    "userInfo": {
+      "user_id": "test-user-001",
+      "last_name": "山田",
+      "first_name": "太郎",
+      "phone_number": "090-1234-5678",
+      "address": "東京都渋谷区..."
+    },
+    "conversationHistory": {
+      "conversation": [
+        {"role": "assistant", "text": "おはようございます、山田さん。"},
+        {"role": "user", "text": "おはよう。今日は孫が来るんだ。"}
+      ]
+    },
+    "diary": "2024年12月01日 山田太郎さんの一日\n\n今日の山田太郎さんはとても嬉しそうでした。孫が遊びに来ることを楽しみにしていて..."
+  },
+  "message": "ユーザー情報、会話履歴、日記を正常に生成しました"
 }
 ```
 
-#### レスポンス例（エラー）
+### ユーザー情報と会話履歴取得
 
-```json
+```
+POST /get-user-and-conversation
+Content-Type: application/json
+
 {
-  "status": "error",
-  "userID": "test-user-001",
-  "callID": "call-12345",
-  "message": "ユーザーが見つかりませんでした"
+  "userID": "ユーザーID",
+  "callID": "コールID"
+}
+```
+
+### ユーザー情報取得 (レガシー)
+
+```
+POST /get-user-info
+Content-Type: application/json
+
+{
+  "userID": "ユーザーID",
+  "callID": "コールID"
+}
+```
+
+### 会話履歴取得 (レガシー)
+
+```
+POST /get-conversation-history-v2
+Content-Type: application/json
+
+{
+  "userID": "ユーザーID",
+  "callID": "コールID"
+}
+```
+
+### ユーザーのすべての会話履歴取得
+
+```
+POST /get-user-calls
+Content-Type: application/json
+
+{
+  "userID": "ユーザーID"
 }
 ```
 
@@ -129,24 +205,69 @@ Content-Type: application/json
 
 ```bash
 # ヘルスチェック
-curl http://localhost:8081/health
+curl http://localhost:8080/health
 
 # DB接続テスト
-curl http://localhost:8081/test-db
+curl http://localhost:8080/test-db
 
-# ユーザー情報取得
-curl -X POST http://localhost:8081/get-user-info \
+# Gemini API接続テスト (NEW)
+curl http://localhost:8080/test-gemini
+
+# 日記生成 (NEW)
+curl -X POST http://localhost:8080/generate-diary \
   -H "Content-Type: application/json" \
   -d '{"userID": "test-user-001", "callID": "call-12345"}'
+
+# ユーザー情報と会話履歴取得
+curl -X POST http://localhost:8080/get-user-and-conversation \
+  -H "Content-Type: application/json" \
+  -d '{"userID": "test-user-001", "callID": "call-12345"}'
+```
+
+## 新機能: 日記生成 (NEW)
+
+### 概要
+
+Gemini APIを使用して、ユーザー情報と会話履歴から家族向けの温かい日記風の文章を自動生成します。
+
+### 特徴
+
+- **家族向け**: 家族が読んで安心できる内容に調整
+- **温かみのある表現**: 敬語を使わず親しみやすい文体
+- **プライバシー配慮**: センシティブな情報を適切に処理
+- **自動要約**: 会話の要点を自然な文章にまとめ
+
+### 使用方法
+
+1. **APIキー設定**: Gemini API キーを環境変数に設定
+2. **エンドポイント呼び出し**: `/generate-diary` にPOSTリクエスト
+3. **日記取得**: レスポンスの `diary` フィールドに生成された日記
+
+### 出力例
+
+```
+2024年12月01日 山田太郎さんの一日
+
+今日の山田太郎さんはとても嬉しそうでした。孫が遊びに来ることを楽しみにしていて、一緒に近所の公園へお散歩に行く予定を立てています。お天気も良く、きっと素敵な時間を過ごせそうです。久しぶりに孫と会えることを心から楽しみにしている様子が伝わってきました。
 ```
 
 ## 技術仕様
 
 - **フレームワーク**: Flask
 - **データベース**: Cloud SQL for MySQL
+- **NoSQL**: Cloud Firestore
+- **AI**: Gemini 2.5 Flash API (NEW)
 - **認証**: mysql-connector-python with caching_sha2_password
-- **ポート**: 8081
+- **ポート**: 8080
 - **環境**: 開発環境（TCP接続）/ Cloud Run環境（Unix socket）対応
+
+## 環境変数
+
+| 変数名 | 説明 | 必須 |
+|--------|------|------|
+| `DB_PASSWORD` | データベースパスワード | ✅ |
+| `GOOGLE_CLOUD_PROJECT` | Google Cloud プロジェクトID | ✅ |
+| `GEMINI_API_KEY` | Gemini API キー | ✅ (日記生成機能使用時) |
 
 ## トラブルシューティング
 
@@ -156,6 +277,86 @@ curl -X POST http://localhost:8081/get-user-info \
 2. 環境変数が正しく設定されているか確認
 3. ネットワーク接続を確認
 
-### パッケージ開発
+### Gemini API関連エラー (NEW)
 
-処理ロジックの開発やテストについては `get-info/README.md` を参照してください。 
+1. `GEMINI_API_KEY` 環境変数が設定されているか確認
+2. APIキーが有効かGoogle AI Studioで確認
+3. APIの利用制限に達していないか確認
+
+## 動作確認
+
+### テスト用パラメータ
+
+動作確認には以下の固定パラメータを使用します：
+
+- **userID**: `4CC0CA6A-657C-4253-99FF-C19219D30AE2`
+- **callID**: `CA995a950a2b9f6623a5adc987d0b31131`
+
+### 1. Gemini API単体テスト（DB接続不要）
+
+```bash
+# 仮想環境をアクティベート
+source ai_diary_env/bin/activate
+
+# Gemini APIキーを設定
+export GEMINI_API_KEY="your_gemini_api_key_here"
+
+# サンプルデータでの日記生成テスト
+python test_sample_data.py
+
+# 基本的なGemini API接続テスト
+python test_gemini_simple.py
+
+# より詳細なGemini APIテスト
+python test_gemini_local.py
+```
+
+### 2. DB接続を含む統合テスト
+
+```bash
+# Cloud SQL Proxyが起動していることを確認
+# cloud_sql_proxy -instances=univac-aiagent:asia-northeast1:cloudsql-01=tcp:3306
+
+# 統合テスト実行（DB接続、ユーザー情報取得、会話履歴取得、日記生成）
+python test_integration.py
+```
+
+### 3. Flaskサーバー起動・API動作確認
+
+```bash
+# サーバー起動
+python main.py
+
+# 別ターミナルでAPIテスト
+curl -X POST http://localhost:8080/generate-diary \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userID": "4CC0CA6A-657C-4253-99FF-C19219D30AE2",
+    "callID": "CA995a950a2b9f6623a5adc987d0b31131"
+  }'
+```
+
+### 4. テストスクリプト一覧
+
+| スクリプト名 | 説明 | DB接続要 | Gemini API要 |
+|-------------|------|----------|--------------|
+| `test_sample_data.py` | サンプルデータでの日記生成テスト | ❌ | ✅ |
+| `test_gemini_simple.py` | 基本的なGemini API接続テスト | ❌ | ✅ |
+| `test_gemini_local.py` | 詳細なGemini APIテスト | ❌ | ✅ |
+| `test_integration.py` | DB接続を含む統合テスト | ✅ | ✅ |
+| `comprehensive_test.py` | API経由での総合テスト | ✅ | ✅ |
+
+### 5. 動作確認の結果例
+
+#### 成功時の日記生成例
+```
+タイトル: 2025年06月28日 田中さんの一日
+
+今日は朝から調子がいいんだ！久しぶりに体が軽くて、なんだか嬉しい一日になりそう。
+朝ごはんもいつもよりたくさん食べられたしね。午前中はゆっくりとラジオ体操をして、
+庭の草花に水をあげたよ。
+
+午後には、娘と孫娘が遊びに来てくれる予定なんだ！7歳になる元気いっぱいの女の子でね、
+一緒に絵を描く約束をしているんだ。孫娘が来るってだけで、家の中が明るくなった気がする。
+久しぶりに賑やかな時間になるのが、本当に楽しみ！
+```

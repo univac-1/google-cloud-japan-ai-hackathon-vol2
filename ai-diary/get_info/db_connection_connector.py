@@ -50,7 +50,7 @@ def get_db_connection_with_connector():
             return connection
             
     except Exception as e:
-        logger.error(f"DB接続エラー (Cloud SQL Connector): {type(e).__name__}: {str(e)}")
+        logger.error(f"DB接続エラー (Cloud SQL Connector): {e}")
         raise
 
 def test_connection_with_connector():
@@ -68,13 +68,10 @@ def test_connection_with_connector():
         logger.info(f"DB接続テスト成功: {result}")
         return True
     except Exception as e:
-        logger.error(f"DB接続エラー: {type(e).__name__}: {str(e)}")
+        logger.error(f"DB接続エラー: {e}")
         return False
     finally:
-        try:
-            if cursor:
-                cursor.close()
-            if conn:
-                conn.close()
-        except Exception as close_error:
-            logger.error(f"接続クローズエラー: {type(close_error).__name__}: {str(close_error)}")
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()

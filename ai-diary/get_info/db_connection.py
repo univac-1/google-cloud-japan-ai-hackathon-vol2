@@ -6,7 +6,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 def get_db_connection():
-    """データベース接続を取得する"""
+    """データベース接続を取得する（anpi-call-schedulerと同一の方式）"""
     try:
         # Cloud Run環境の判定 - Cloud Run JobsやCloud Run Servicesで動作中か判定
         is_cloud_run = (
@@ -44,40 +44,61 @@ def get_db_connection():
                 autocommit=True
             )
         return connection
-    except Exception as e:
-        logger.error(f"データベース接続エラー: {type(e).__name__}: {str(e)}")
+    except Error as e:
+        logger.error(f"データベース接続エラー: {e}")
         raise
 
 def test_connection():
-    """DB接続テスト"""
-    conn = None
-    cursor = None
+    """データベース接続テスト（最小限）"""
+    connection = None
     try:
-        logger.info("DB接続テスト開始")
-        conn = get_db_connection()
-        logger.info("DB接続成功、カーソル作成中")
-        cursor = conn.cursor(dictionary=True)
-        logger.info("SELECT 1クエリ実行中")
-        cursor.execute("SELECT 1 as test")
+        logger.info("=== Cloud SQL接続テスト開始（最小限）===")
+        
+        # Cloud Run環境の判定
+        is_cloud_run = (
+            os.environ.get('K_SERVICE') is not None or
+            os.environ.get('CLOUD_RUN_JOB') is not None or
+            os.environ.get('K_CONFIGURATION') is not None
+        )
+        
+        if is_cloud_run:
+            # Cloud SQL Proxyソケット接続（最小限のパラメータ）
+            unix_socket = f"/cloudsql/{os.environ.get('GOOGLE_CLOUD_PROJECT', 'univac-aiagent')}:asia-northeast1:cloudsql-01"
+            logger.info(f"Unix socket: {unix_socket}")
+            
+            connection = mysql.connector.connect(
+                unix_socket=unix_socket,
+                user=os.environ.get('DB_USER'),
+                password=os.environ.get('DB_PASSWORD'),
+                database=os.environ.get('DB_NAME'),
+                autocommit=True
+            )
+        else:
+            logger.info("Not in Cloud Run environment")
+            return False
+            
+        logger.info("✅ データベース接続成功!")
+        
+        # 簡単なクエリ実行
+        cursor = connection.cursor()
+        cursor.execute("SELECT 1")
         result = cursor.fetchone()
-        logger.info(f"DB接続テスト成功: {result}")
+        cursor.close()
+        
+        logger.info(f"クエリ結果: {result}")
+        logger.info("=== Cloud SQL接続テスト正常終了 ===")
         return True
+        
+    except mysql.connector.Error as e:
+        logger.error(f"データベースエラー: エラーコード={getattr(e, 'errno', 'N/A')}")
+        return False
     except Exception as e:
-        # エラーログ出力を単純化
-        try:
-            logger.error(f"DB接続エラー: {type(e).__name__}")
-            logger.error(f"エラー詳細: {str(e)}")
-        except:
-            logger.error("DB接続エラー（詳細不明）")
+        logger.error(f"予期しないエラー: タイプ={type(e).__name__}")
         return False
     finally:
-        try:
-            if cursor:
-                cursor.close()
-            if conn and conn.is_connected():
-                conn.close()
-        except Exception as close_error:
+        if connection:
             try:
-                logger.error(f"接続クローズエラー: {type(close_error).__name__}")
+                connection.close()
+                logger.info("データベース接続を閉じました")
             except:
-                logger.error("接続クローズエラー（詳細不明）") 
+                pass 

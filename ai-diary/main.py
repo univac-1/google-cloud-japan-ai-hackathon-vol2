@@ -150,8 +150,20 @@ def test_db_connection():
             return jsonify(create_error_response("DB_CONNECTION_ERROR", "Database connection failed", 500)[0]), 500
             
     except Exception as e:
-        app.logger.error(f"Database test error: {str(e)}")
-        return jsonify(create_error_response("DB_TEST_ERROR", f"Database test error: {str(e)}", 500)[0]), 500
+        import traceback
+        error_type = type(e).__name__
+        error_msg = f"Database test failed - Type: {error_type}"
+        
+        # 例外の詳細を安全に取得
+        try:
+            error_details = repr(e)
+        except:
+            error_details = "Unable to get error details"
+            
+        app.logger.error(f"{error_msg} - Details: {error_details}")
+        traceback_str = traceback.format_exc()
+        app.logger.error(f"Traceback: {traceback_str}")
+        return jsonify(create_error_response("DB_TEST_ERROR", error_msg, 500)[0]), 500
 
 @app.route("/test-db-simple", methods=["GET"])
 def test_db_simple():

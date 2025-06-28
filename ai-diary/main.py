@@ -4,6 +4,8 @@ from illustration.generator import generate_illustration
 from flask import Flask, request, jsonify
 from get_info.user_service import get_user_info
 from get_info.db_connection import test_connection
+from get_history.conversation_service import get_conversation_history
+from get_history.subcollection_conversation_service import SubcollectionConversationHistoryService
 
 app = Flask(__name__)
 
@@ -88,6 +90,144 @@ def get_user_info_endpoint():
     except Exception as e:
         return {
             "status": "error",
+            "message": f"処理中にエラーが発生しました: {str(e)}"
+        }, 500
+
+@app.route("/get-conversation-history", methods=["POST"])
+def get_conversation_history_endpoint():
+    """会話履歴取得エンドポイント"""
+    try:
+        # リクエストからuserIDとcallIDを取得
+        data = request.get_json()
+        if not data:
+            return {"error": "JSONデータが必要です"}, 400
+        
+        user_id = data.get("userID")
+        call_id = data.get("callID")
+        
+        if not user_id:
+            return {"error": "userIDが必要です"}, 400
+        
+        if not call_id:
+            return {"error": "callIDが必要です"}, 400
+        
+        # 会話履歴を取得
+        result = get_conversation_history(user_id, call_id)
+        
+        # レスポンスのステータスに応じてHTTPステータスコードを設定
+        if result["status"] == "success":
+            return jsonify(result), 200
+        else:
+            # エラーコードに応じてHTTPステータスコードを調整
+            error_code = result.get("error_code", "UNKNOWN_ERROR")
+            if error_code == "USER_NOT_FOUND":
+                return jsonify(result), 404
+            elif error_code == "CONVERSATION_NOT_FOUND":
+                return jsonify(result), 404
+            elif error_code == "USER_MISMATCH":
+                return jsonify(result), 403
+            else:
+                return jsonify(result), 500
+            
+    except Exception as e:
+        return {
+            "status": "error",
+            "error_code": "INTERNAL_ERROR",
+            "message": f"処理中にエラーが発生しました: {str(e)}"
+        }, 500
+
+@app.route("/get-conversation-history-v2", methods=["POST"])
+def get_conversation_history_v2_endpoint():
+    """サブコレクション構造対応の会話履歴取得エンドポイント (users/{userID}/calls/{callID})"""
+    try:
+        # リクエストからuserIDとcallIDを取得
+        data = request.get_json()
+        if not data:
+            return {"error": "JSONデータが必要です"}, 400
+        
+        user_id = data.get("userID")
+        call_id = data.get("callID")
+        
+        if not user_id:
+            return {"error": "userIDが必要です"}, 400
+        
+        if not call_id:
+            return {"error": "callIDが必要です"}, 400
+        
+        # サブコレクション対応サービスで会話履歴を取得
+        service = SubcollectionConversationHistoryService()
+        success, response_data, error_code = service.get_conversation_history(user_id, call_id)
+        
+        if success:
+            result = {
+                "status": "success",
+                "data": response_data
+            }
+            return jsonify(result), 200
+        else:
+            # エラーコードに応じてHTTPステータスコードを調整
+            result = {
+                "status": "error",
+                "error_code": error_code,
+                "message": f"会話履歴の取得に失敗しました"
+            }
+            
+            if error_code == "USER_NOT_FOUND":
+                return jsonify(result), 404
+            elif error_code == "CONVERSATION_NOT_FOUND":
+                return jsonify(result), 404
+            elif error_code == "USER_MISMATCH":
+                return jsonify(result), 403
+            else:
+                return jsonify(result), 500
+            
+    except Exception as e:
+        return {
+            "status": "error",
+            "error_code": "INTERNAL_ERROR",
+            "message": f"処理中にエラーが発生しました: {str(e)}"
+        }, 500
+
+@app.route("/get-user-calls", methods=["POST"])
+def get_user_calls_endpoint():
+    """指定ユーザーのすべての会話履歴取得エンドポイント"""
+    try:
+        # リクエストからuserIDを取得
+        data = request.get_json()
+        if not data:
+            return {"error": "JSONデータが必要です"}, 400
+        
+        user_id = data.get("userID")
+        
+        if not user_id:
+            return {"error": "userIDが必要です"}, 400
+        
+        # サブコレクション対応サービスですべての会話履歴を取得
+        service = SubcollectionConversationHistoryService()
+        success, response_data, error_code = service.get_user_all_calls(user_id)
+        
+        if success:
+            result = {
+                "status": "success",
+                "data": response_data
+            }
+            return jsonify(result), 200
+        else:
+            result = {
+                "status": "error",
+                "error_code": error_code,
+                "message": f"会話履歴の取得に失敗しました"
+            }
+            
+            if error_code == "USER_NOT_FOUND":
+                return jsonify(result), 404
+            else:
+                return jsonify(result), 500
+            
+    except Exception as e:
+        return {
+            "status": "error",
+            "error_code": "INTERNAL_ERROR",
             "message": f"処理中にエラーが発生しました: {str(e)}"
         }, 500
 

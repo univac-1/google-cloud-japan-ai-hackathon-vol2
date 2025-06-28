@@ -1,11 +1,18 @@
 steps:
-  # Dockerイメージをビルド
+  # Dockerイメージをビルド（Artifact Registry対応）
   - name: "gcr.io/cloud-builders/docker"
-    args: ["build", "-t", "gcr.io/$PROJECT_ID/ai-diary", "./ai-diary"]
+    args:
+      [
+        "build",
+        "-t",
+        "asia-northeast1-docker.pkg.dev/$PROJECT_ID/ai-diary/ai-diary",
+        "./ai-diary",
+      ]
 
-  # DockerイメージをContainer Registryにプッシュ
+  # Artifact Registryにプッシュ
   - name: "gcr.io/cloud-builders/docker"
-    args: ["push", "gcr.io/$PROJECT_ID/ai-diary"]
+    args:
+      ["push", "asia-northeast1-docker.pkg.dev/$PROJECT_ID/ai-diary/ai-diary"]
 
   # Cloud Runにデプロイ
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
@@ -15,17 +22,15 @@ steps:
       - "deploy"
       - "ai-diary"
       - "--image"
-      - "gcr.io/$PROJECT_ID/ai-diary"
+      - "asia-northeast1-docker.pkg.dev/$PROJECT_ID/ai-diary/ai-diary"
       - "--region"
-      - "us-central1"
+      - "asia-northeast1"
       - "--platform"
       - "managed"
       - "--allow-unauthenticated"
-      - "--source"
-      - "./ai-diary" # ソースディレクトリを指定
 
 images:
-  - "gcr.io/$PROJECT_ID/ai-diary"
+  - "asia-northeast1-docker.pkg.dev/$PROJECT_ID/ai-diary/ai-diary"
 
 options:
   logging: CLOUD_LOGGING_ONLY

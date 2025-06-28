@@ -1,10 +1,11 @@
 import os
 
-from flask import Flask
 from illustration.generator import generate_illustration
+from flask import Flask, request, jsonify
+from get_info.user_service import get_user_info
+from get_info.db_connection import test_connection
 
 app = Flask(__name__)
-
 
 @app.route("/")
 def hello_world():
@@ -34,6 +35,62 @@ def test_generate_illustration():
         return "Error"
 
 
+@app.route("/health", methods=["GET"])
+def health_check():
+    """ヘルスチェック"""
+    return {"status": "healthy", "service": "ai-diary-get-info"}
+
+@app.route("/test-db", methods=["GET"])
+def test_db():
+    """DB接続テスト"""
+    if test_connection():
+        return {"status": "success", "message": "DB接続成功"}
+    else:
+        return {"status": "error", "message": "DB接続失敗"}, 500
+
+@app.route("/get-user-info", methods=["POST"])
+def get_user_info_endpoint():
+    """ユーザー情報取得エンドポイント"""
+    try:
+        # リクエストからuserIDとcallIDを取得
+        data = request.get_json()
+        if not data:
+            return {"error": "JSONデータが必要です"}, 400
+        
+        user_id = data.get("userID")
+        call_id = data.get("callID")
+        
+        if not user_id:
+            return {"error": "userIDが必要です"}, 400
+        
+        if not call_id:
+            return {"error": "callIDが必要です"}, 400
+        
+        # ユーザー情報を取得
+        user_info = get_user_info(user_id)
+        
+        if user_info:
+            response = {
+                "status": "success",
+                "userID": user_id,
+                "callID": call_id,
+                "userInfo": user_info
+            }
+            return jsonify(response)
+        else:
+            return {
+                "status": "error",
+                "userID": user_id,
+                "callID": call_id,
+                "message": "ユーザーが見つかりませんでした"
+            }, 404
+            
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"処理中にエラーが発生しました: {str(e)}"
+        }, 500
 
 if __name__ == "__main__":
+    print("AI Diary Get Info Service starting...")
     app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

@@ -1,4 +1,5 @@
 import os
+import requests
 
 # .envファイルから環境変数を読み込み
 def load_env_file():
@@ -33,6 +34,45 @@ app = Flask(__name__)
 # ===============================
 # ヘルパー関数
 # ===============================
+
+def send_email(to_email: str, subject: str, content: str) -> Tuple[bool, str]:
+    """
+    メール送信
+    
+    Args:
+        to_email: 送信先メールアドレス
+        subject: 件名
+        content: HTMLコンテンツ
+        
+    Returns:
+        Tuple[bool, str]: (成功フラグ, メッセージまたはエラー)
+    """
+    try:
+        email_api_url = "https://send-email-hkzk5xnm7q-an.a.run.app/send_email"
+        
+        payload = {
+            "to_email": to_email,
+            "subject": subject,
+            "content": content
+        }
+        
+        headers = {
+            "Content-Type": "application/json"
+        }
+        
+        response = requests.post(email_api_url, json=payload, headers=headers, timeout=30)
+        
+        if response.status_code == 200:
+            return True, "メール送信成功"
+        else:
+            return False, f"メール送信失敗: HTTP {response.status_code} - {response.text}"
+            
+    except requests.exceptions.Timeout:
+        return False, "メール送信失敗: タイムアウト"
+    except requests.exceptions.RequestException as e:
+        return False, f"メール送信失敗: {str(e)}"
+    except Exception as e:
+        return False, f"メール送信失敗: 予期しないエラー - {str(e)}"
 
 def validate_request_data(data: Optional[Dict], required_fields: list) -> Tuple[bool, Optional[Dict]]:
     """
@@ -221,6 +261,39 @@ def test_html():
         )
         return jsonify(error_response), status_code
 
+@app.route("/test-email", methods=["GET"])
+@handle_exceptions
+def test_email():
+    """メール送信API接続テスト"""
+    try:
+        # テスト用HTMLコンテンツ
+        test_html_content = "<h1>テストメール</h1><p>AI日記サービスからのテストメールです。</p>"
+        test_email_address = "5jpbnd@gmail.com"  # ローカル動作確認用
+        
+        success, message = send_email(
+            to_email=test_email_address,
+            subject="AI日記サービス - テストメール",
+            content=test_html_content
+        )
+        
+        if success:
+            return create_success_response(
+                {"email_sent_to": test_email_address}, 
+                "メール送信API接続成功"
+            )
+        else:
+            error_response, status_code = create_error_response(
+                "EMAIL_CONNECTION_ERROR", 
+                f"メール送信API接続失敗: {message}"
+            )
+            return jsonify(error_response), status_code
+    except Exception as e:
+        error_response, status_code = create_error_response(
+            "EMAIL_CONNECTION_ERROR", 
+            f"メール送信API接続エラー: {str(e)}"
+        )
+        return jsonify(error_response), status_code
+
 @app.route("/generate-diary", methods=["POST"])
 @handle_exceptions
 def generate_diary_endpoint():
@@ -317,6 +390,43 @@ def generate_diary_endpoint():
                 app.logger.warning(f"HTML generation failed: {str(html_error)}")
                 html_content = None
             
+            # Step 6: メール送信
+            email_sent = False
+            email_message = None
+            try:
+                # ユーザー情報からメールアドレスを取得
+                user_email = user_info.get('email')
+                
+                # ローカル動作確認用の固定メールアドレス
+                if user_id == "4CC0CA6A-657C-4253-99FF-C19219D30AE2":
+                    user_email = "5jpbnd@gmail.com"
+                
+                if user_email and html_content:
+                    email_success, email_msg = send_email(
+                        to_email=user_email,
+                        subject="AI日記が完成しました",
+                        content=html_content
+                    )
+                    email_sent = email_success
+                    email_message = email_msg
+                    
+                    if email_success:
+                        app.logger.info(f"Email sent successfully to: {user_email}")
+                    else:
+                        app.logger.warning(f"Email sending failed: {email_msg}")
+                elif not user_email:
+                    email_message = "ユーザーのメールアドレスが見つかりません"
+                    app.logger.warning(f"No email address found for user: {user_id}")
+                elif not html_content:
+                    email_message = "HTMLコンテンツが生成されていないためメール送信をスキップしました"
+                    app.logger.warning("HTML content is empty, skipping email sending")
+                    
+            except Exception as email_error:
+                # メール送信エラーは警告ログに記録するが、処理は継続
+                app.logger.warning(f"Email sending failed: {str(email_error)}")
+                email_sent = False
+                email_message = f"メール送信エラー: {str(email_error)}"
+            
             # 成功レスポンス
             response_data = {
                 "userID": user_id,
@@ -325,12 +435,14 @@ def generate_diary_endpoint():
                 "conversationHistory": conversation_data,
                 "diary": diary_text,
                 "illustrationUrl": illustration_url,
-                "htmlContent": html_content
+                "htmlContent": html_content,
+                "emailSent": email_sent,
+                "emailMessage": email_message
             }
             
             return jsonify(create_success_response(
                 response_data, 
-                "ユーザー情報、会話履歴、日記、挿絵、HTMLページを正常に生成しました"
+                "ユーザー情報取得→会話履歴取得→日記生成→挿絵作成→HTML生成→メール送信の処理が完了しました"
             ))
             
         except ValueError as e:

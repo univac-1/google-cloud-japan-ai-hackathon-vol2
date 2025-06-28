@@ -1,6 +1,6 @@
 # AI Diary Service
 
-ユーザー情報取得 + 会話履歴取得 + AI日記生成 + 挿絵作成の統合APIサービス
+ユーザー情報取得 + 会話履歴取得 + AI日記生成 + 挿絵作成 + HTML生成の統合APIサービス
 
 ## 概要
 
@@ -8,14 +8,15 @@
   1. userIDをもとにRDBからユーザー情報を取得
   2. userIDとcallIDをもとにFirestoreから会話履歴を取得  
   3. 取得した情報を使ってGemini APIで家族向けの日記風文章を生成
-  4. **NEW**: 日記文章とユーザー情報をもとにVertex AI Imagenで挿絵を生成
+  4. 日記文章とユーザー情報をもとにVertex AI Imagenで挿絵を生成
+  5. **NEW**: 日記テキストを外部APIでHTMLページに変換
 - anpi-call-dbで作成されたCloud SQL for MySQLに接続
 - Flask RESTful APIとして実装
 
 ## メインAPI
 
 ### `/generate-diary` - 完全な日記生成API
-ユーザー情報取得→会話履歴取得→日記生成→挿絵作成の一連の処理を実行
+ユーザー情報取得→会話履歴取得→日記生成→挿絵作成→HTML生成の一連の処理を実行
 
 ```bash
 POST /generate-diary
@@ -50,9 +51,12 @@ ai-diary/
 │   ├── gemini_service.py   # Gemini API日記生成サービス
 │   ├── gemini_test.py      # Gemini API動作確認テスト
 │   └── README.md           # パッケージ説明
-├── illustration/           # 挿絵生成処理パッケージ (NEW)
+├── illustration/           # 挿絵生成処理パッケージ
 │   ├── generator.py        # Vertex AI Imagen挿絵生成
 │   └── prompt_builder.py   # 挿絵生成プロンプト構築
+│   └── README.md           # パッケージ説明
+├── html_generator/         # HTML生成処理パッケージ (NEW)
+│   ├── generator.py        # 外部API HTML生成
 │   └── README.md           # パッケージ説明
 ├── .env                    # 環境設定（ローカル開発用）
 ├── config.env              # 基本設定（非推奨）
@@ -62,7 +66,9 @@ ai-diary/
 ├── check_db_connection.sh  # データベース接続状況チェック（NEW）
 ├── test_service.sh         # テストスクリプト
 ├── test_gemini_api.sh      # Gemini APIテストスクリプト
-├── test_specified_params.sh # 指定パラメータテストスクリプト（NEW）
+├── test_specified_params.sh # 指定パラメータテストスクリプト
+├── test_html_api.sh        # HTML生成APIテストスクリプト (NEW)
+├── test_complete_api_with_html.sh # HTML生成含む完全APIテスト (NEW)
 ├── venv/                  # Python仮想環境
 └── README.md              # このファイル
 ```
@@ -181,6 +187,12 @@ GET /test-db
 GET /test-gemini
 ```
 
+### HTML生成API接続テスト (NEW)
+
+```
+GET /test-html
+```
+
 ### 日記生成 (NEW) - 推奨エンドポイント
 
 ```
@@ -214,9 +226,11 @@ Content-Type: application/json
         {"role": "user", "text": "おはよう。今日は孫が来るんだ。"}
       ]
     },
-    "diary": "2024年12月01日 山田太郎さんの一日\n\n今日の山田太郎さんはとても嬉しそうでした。孫が遊びに来ることを楽しみにしていて..."
+    "diary": "2024年12月01日 山田太郎さんの一日\n\n今日の山田太郎さんはとても嬉しそうでした。孫が遊びに来ることを楽しみにしていて...",
+    "illustrationUrl": "https://storage.googleapis.com/...",
+    "htmlContent": "<html>...</html>"
   },
-  "message": "ユーザー情報、会話履歴、日記を正常に生成しました"
+  "message": "ユーザー情報、会話履歴、日記、挿絵、HTMLページを正常に生成しました"
 }
 ```
 
@@ -281,6 +295,9 @@ curl http://localhost:8080/test-db
 # Gemini API接続テスト (NEW)
 curl http://localhost:8080/test-gemini
 
+# HTML生成API接続テスト (NEW)
+curl http://localhost:8080/test-html
+
 # 日記生成 (NEW)
 curl -X POST http://localhost:8080/generate-diary \
   -H "Content-Type: application/json" \
@@ -291,6 +308,35 @@ curl -X POST http://localhost:8080/get-user-and-conversation \
   -H "Content-Type: application/json" \
   -d '{"userID": "test-user-001", "callID": "call-12345"}'
 ```
+
+## 新機能: HTML生成 (NEW)
+
+### 概要
+
+日記テキストを外部APIを使用してHTMLページに変換します。
+
+### 特徴
+
+- **外部API連携**: 専用のHTML生成APIサービスと連携
+- **自動変換**: 日記テキストから美しいHTMLページを自動生成
+- **エラーハンドリング**: API呼び出し失敗時の適切な処理
+- **統合処理**: 日記生成から続く一連の処理として実行
+
+### HTML生成API仕様
+
+- **URL**: `https://eniki-html-generator-hkzk5xnm7q-an.a.run.app/process-text`
+- **Method**: POST
+- **Content-Type**: multipart/form-data
+- **Parameters**:
+  - `text_content`: 日記テキスト
+  - `user_id`: ユーザーID  
+  - `call_id`: 通話ID
+
+### 使用方法
+
+1. **完全API呼び出し**: `/generate-diary` エンドポイントで自動実行
+2. **単体テスト**: `/test-html` エンドポイントでAPI接続確認
+3. **レスポンス確認**: `htmlContent` フィールドに生成されたHTML
 
 ## 新機能: 日記生成 (NEW)
 
@@ -319,6 +365,43 @@ Gemini APIを使用して、ユーザー情報と会話履歴から家族向け�
 今日の山田太郎さんはとても嬉しそうでした。孫が遊びに来ることを楽しみにしていて、一緒に近所の公園へお散歩に行く予定を立てています。お天気も良く、きっと素敵な時間を過ごせそうです。久しぶりに孫と会えることを心から楽しみにしている様子が伝わってきました。
 ```
 
+### HTML生成結果の例
+
+HTML生成APIによって以下のような完全なHTMLページが作成されます：
+
+- **美しいデザイン**: CSS3を使用したモダンなスタイリング
+- **レスポンシブ対応**: スマートフォンやタブレットに対応
+- **画像統合**: 挿絵が自動的にHTMLページに埋め込まれ
+- **日本語最適化**: 適切なフォント設定と文字エンコーディング
+- **GCS保存**: 生成されたHTMLは自動的にGoogle Cloud Storageに保存
+
+HTML出力例の主要な特徴：
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>AI絵日記</title>
+    <!-- モダンなCSSスタイル -->
+</head>
+<body>
+    <div class="diary-container">
+        <header class="diary-header">
+            <h1>AI絵日記</h1>
+        </header>
+        <div class="diary-image-wrapper">
+            <img src="[挿絵URL]" alt="AI生成画像">
+        </div>
+        <div class="diary-content">
+            [生成された日記テキスト]
+        </div>
+        <footer class="diary-footer">
+            <p>日付: [現在の日付]</p>
+        </footer>
+    </div>
+</body>
+</html>
+```
 ## 技術仕様
 
 - **フレームワーク**: Flask
@@ -345,11 +428,17 @@ Gemini APIを使用して、ユーザー情報と会話履歴から家族向け�
 2. 環境変数が正しく設定されているか確認
 3. ネットワーク接続を確認
 
-### Gemini API関連エラー (NEW)
+### Gemini API関連エラー
 
 1. `GEMINI_API_KEY` 環境変数が設定されているか確認
 2. APIキーが有効かGoogle AI Studioで確認
 3. APIの利用制限に達していないか確認
+
+### 3. HTML生成API関連エラー (NEW)
+
+1. HTML生成APIエンドポイントが正常かネットワーク接続確認
+2. APIタイムアウト（30秒）に達していないか確認  
+3. 外部APIサービスの稼働状況を確認
 
 ## 動作確認
 
@@ -406,13 +495,17 @@ curl -X POST http://localhost:8080/generate-diary \
 
 ### 4. テストスクリプト一覧
 
-| スクリプト名 | 説明 | DB接続要 | Gemini API要 |
-|-------------|------|----------|--------------|
-| `test_sample_data.py` | サンプルデータでの日記生成テスト | ❌ | ✅ |
-| `test_gemini_simple.py` | 基本的なGemini API接続テスト | ❌ | ✅ |
-| `test_gemini_local.py` | 詳細なGemini APIテスト | ❌ | ✅ |
-| `test_integration.py` | DB接続を含む統合テスト | ✅ | ✅ |
-| `comprehensive_test.py` | API経由での総合テスト | ✅ | ✅ |
+| スクリプト名 | 説明 | DB接続要 | Gemini API要 | HTML API要 |
+|-------------|------|----------|--------------|------------|
+| `test_sample_data.py` | サンプルデータでの日記生成テスト | ❌ | ✅ | ❌ |
+| `test_gemini_simple.py` | 基本的なGemini API接続テスト | ❌ | ✅ | ❌ |
+| `test_gemini_local.py` | 詳細なGemini APIテスト | ❌ | ✅ | ❌ |
+| `test_html_api.sh` | HTML生成API単体テスト | ❌ | ❌ | ✅ |
+| `test_integration.py` | DB接続を含む統合テスト | ✅ | ✅ | ❌ |
+| `test_complete_api_with_html.sh` | HTML生成含む完全APIテスト | ✅ | ✅ | ✅ |
+| `test_complete_flow_with_html.py` | HTML生成含む完全フローテスト（Python版） | ✅ | ✅ | ✅ |
+| `test_complete_flow_with_html.sh` | HTML生成含む完全フローテスト（シェル版） | ✅ | ✅ | ✅ |
+| `comprehensive_test.py` | API経由での総合テスト | ✅ | ✅ | ❌ |
 
 ### 5. 動作確認の結果例
 

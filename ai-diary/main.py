@@ -18,6 +18,7 @@ def load_env_file():
 load_env_file()
 
 from illustration.generator import generate_illustration
+from html_generator.generator import generate_html_page, test_html_generation
 from flask import Flask, request, jsonify
 from functools import wraps
 from typing import Dict, Tuple, Any, Optional
@@ -200,12 +201,32 @@ def test_gemini():
         )
         return jsonify(error_response), status_code
 
+@app.route("/test-html", methods=["GET"])
+@handle_exceptions
+def test_html():
+    """HTML生成API接続テスト"""
+    try:
+        if test_html_generation():
+            return create_success_response(None, "HTML生成API接続成功")
+        else:
+            error_response, status_code = create_error_response(
+                "HTML_CONNECTION_ERROR", 
+                "HTML生成API接続失敗"
+            )
+            return jsonify(error_response), status_code
+    except Exception as e:
+        error_response, status_code = create_error_response(
+            "HTML_CONNECTION_ERROR", 
+            f"HTML生成API接続エラー: {str(e)}"
+        )
+        return jsonify(error_response), status_code
+
 @app.route("/generate-diary", methods=["POST"])
 @handle_exceptions
 def generate_diary_endpoint():
     """
     完全な日記生成API
-    ユーザー情報取得→会話履歴取得→日記生成→挿絵作成の一連の処理を実行
+    ユーザー情報取得→会話履歴取得→日記生成→挿絵作成→HTML生成の一連の処理を実行
     
     Request Body:
     {
@@ -222,7 +243,8 @@ def generate_diary_endpoint():
             "userInfo": {...},
             "conversationHistory": {...},
             "diary": "string",
-            "illustrationUrl": "string" or null
+            "illustrationUrl": "string" or null,
+            "htmlContent": "string" or null
         },
         "message": "string"
     }
@@ -282,6 +304,19 @@ def generate_diary_endpoint():
                 app.logger.warning(f"Illustration generation failed: {str(illustration_error)}")
                 illustration_url = None
             
+            # Step 5: HTML生成
+            html_content = None
+            try:
+                html_content = generate_html_page(diary_text, user_id, call_id)
+                if html_content:
+                    app.logger.info("HTML page generated successfully")
+                else:
+                    app.logger.warning("HTML generation returned empty content")
+            except Exception as html_error:
+                # HTML生成エラーは警告ログに記録するが、処理は継続
+                app.logger.warning(f"HTML generation failed: {str(html_error)}")
+                html_content = None
+            
             # 成功レスポンス
             response_data = {
                 "userID": user_id,
@@ -289,12 +324,13 @@ def generate_diary_endpoint():
                 "userInfo": user_info,
                 "conversationHistory": conversation_data,
                 "diary": diary_text,
-                "illustrationUrl": illustration_url
+                "illustrationUrl": illustration_url,
+                "htmlContent": html_content
             }
             
             return jsonify(create_success_response(
                 response_data, 
-                "ユーザー情報、会話履歴、日記、挿絵を正常に生成しました"
+                "ユーザー情報、会話履歴、日記、挿絵、HTMLページを正常に生成しました"
             ))
             
         except ValueError as e:

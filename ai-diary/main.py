@@ -1,5 +1,4 @@
 import os
-import requests
 
 # .envファイルから環境変数を読み込み
 def load_env_file():
@@ -19,13 +18,12 @@ def load_env_file():
 load_env_file()
 
 from illustration.generator import generate_illustration
-from html_generator.generator import generate_html_page, test_html_generation
+from html_generator.generator import generate_html_page
+from email_sender.service import process_diary_email_sending
 from flask import Flask, request, jsonify
 from functools import wraps
 from typing import Dict, Tuple, Any, Optional
 from get_info.user_service import get_user_info
-from get_info.db_connection import test_connection
-from get_history.conversation_service import get_conversation_history
 from get_history.subcollection_conversation_service import SubcollectionConversationHistoryService
 from create_diary_entry import DiaryGenerator
 
@@ -34,45 +32,6 @@ app = Flask(__name__)
 # ===============================
 # ヘルパー関数
 # ===============================
-
-def send_email(to_email: str, subject: str, content: str) -> Tuple[bool, str]:
-    """
-    メール送信
-    
-    Args:
-        to_email: 送信先メールアドレス
-        subject: 件名
-        content: HTMLコンテンツ
-        
-    Returns:
-        Tuple[bool, str]: (成功フラグ, メッセージまたはエラー)
-    """
-    try:
-        email_api_url = "https://send-email-hkzk5xnm7q-an.a.run.app/send_email"
-        
-        payload = {
-            "to_email": to_email,
-            "subject": subject,
-            "content": content
-        }
-        
-        headers = {
-            "Content-Type": "application/json"
-        }
-        
-        response = requests.post(email_api_url, json=payload, headers=headers, timeout=30)
-        
-        if response.status_code == 200:
-            return True, "メール送信成功"
-        else:
-            return False, f"メール送信失敗: HTTP {response.status_code} - {response.text}"
-            
-    except requests.exceptions.Timeout:
-        return False, "メール送信失敗: タイムアウト"
-    except requests.exceptions.RequestException as e:
-        return False, f"メール送信失敗: {str(e)}"
-    except Exception as e:
-        return False, f"メール送信失敗: 予期しないエラー - {str(e)}"
 
 def validate_request_data(data: Optional[Dict], required_fields: list) -> Tuple[bool, Optional[Dict]]:
     """
@@ -172,127 +131,10 @@ def handle_exceptions(f):
 # エンドポイント
 # ===============================
 
-@app.route("/")
-def hello_world():
-    """Example endpoint."""
-    name = os.environ.get("NAME", "World")
-    app.logger.info("test")
-    return f"Hello, {name}!"
-
-@app.route("/test-gen")
-def test_generate_illustration():
-    # テスト用パラメータ
-    diary_text = "今日は孫と凧揚げをしました。空高く飛んで、とても楽しかったです。"
-    user_id = "test-user-1234"
-    call_id = "call-5678"
-    gender = "female"
-
-    # 関数を呼び出し
-    try:
-        image_url = generate_illustration(diary_text, user_id, gender, call_id)
-        print("✅ 画像生成成功！")
-        print("画像URL:", image_url)
-
-        return f"画像生成処理終了： {image_url}"
-    except Exception as e:
-        print("❌ エラーが発生しました:", str(e))
-
-        return "Error"
-
-
 @app.route("/health", methods=["GET"])
 def health_check():
     """ヘルスチェック"""
-    return create_success_response({"service": "ai-diary-get-info"}, "healthy")
-
-@app.route("/test-db", methods=["GET"])
-def test_db():
-    """DB接続テスト"""
-    if test_connection():
-        return create_success_response(None, "DB接続成功")
-    else:
-        error_response, status_code = create_error_response("DB_CONNECTION_ERROR", "DB接続失敗")
-        return jsonify(error_response), status_code
-
-@app.route("/test-gemini", methods=["GET"])
-@handle_exceptions
-def test_gemini():
-    """Gemini API接続テスト"""
-    try:
-        generator = DiaryGenerator()
-        if generator.test_generation():
-            return create_success_response(None, "Gemini API接続成功")
-        else:
-            error_response, status_code = create_error_response(
-                "GEMINI_CONNECTION_ERROR", 
-                "Gemini API接続失敗"
-            )
-            return jsonify(error_response), status_code
-    except ValueError as e:
-        error_response, status_code = create_error_response(
-            "GEMINI_API_KEY_ERROR", 
-            f"Gemini APIキー設定エラー: {str(e)}"
-        )
-        return jsonify(error_response), status_code
-    except Exception as e:
-        error_response, status_code = create_error_response(
-            "GEMINI_CONNECTION_ERROR", 
-            f"Gemini API接続エラー: {str(e)}"
-        )
-        return jsonify(error_response), status_code
-
-@app.route("/test-html", methods=["GET"])
-@handle_exceptions
-def test_html():
-    """HTML生成API接続テスト"""
-    try:
-        if test_html_generation():
-            return create_success_response(None, "HTML生成API接続成功")
-        else:
-            error_response, status_code = create_error_response(
-                "HTML_CONNECTION_ERROR", 
-                "HTML生成API接続失敗"
-            )
-            return jsonify(error_response), status_code
-    except Exception as e:
-        error_response, status_code = create_error_response(
-            "HTML_CONNECTION_ERROR", 
-            f"HTML生成API接続エラー: {str(e)}"
-        )
-        return jsonify(error_response), status_code
-
-@app.route("/test-email", methods=["GET"])
-@handle_exceptions
-def test_email():
-    """メール送信API接続テスト"""
-    try:
-        # テスト用HTMLコンテンツ
-        test_html_content = "<h1>テストメール</h1><p>AI日記サービスからのテストメールです。</p>"
-        test_email_address = "5jpbnd@gmail.com"  # ローカル動作確認用
-        
-        success, message = send_email(
-            to_email=test_email_address,
-            subject="AI日記サービス - テストメール",
-            content=test_html_content
-        )
-        
-        if success:
-            return create_success_response(
-                {"email_sent_to": test_email_address}, 
-                "メール送信API接続成功"
-            )
-        else:
-            error_response, status_code = create_error_response(
-                "EMAIL_CONNECTION_ERROR", 
-                f"メール送信API接続失敗: {message}"
-            )
-            return jsonify(error_response), status_code
-    except Exception as e:
-        error_response, status_code = create_error_response(
-            "EMAIL_CONNECTION_ERROR", 
-            f"メール送信API接続エラー: {str(e)}"
-        )
-        return jsonify(error_response), status_code
+    return create_success_response({"service": "ai-diary-service"}, "healthy")
 
 @app.route("/generate-diary", methods=["POST"])
 @handle_exceptions
@@ -391,41 +233,11 @@ def generate_diary_endpoint():
                 html_content = None
             
             # Step 6: メール送信
-            email_sent = False
-            email_message = None
-            try:
-                # ユーザー情報からメールアドレスを取得
-                user_email = user_info.get('email')
-                
-                # ローカル動作確認用の固定メールアドレス
-                if user_id == "4CC0CA6A-657C-4253-99FF-C19219D30AE2":
-                    user_email = "5jpbnd@gmail.com"
-                
-                if user_email and html_content:
-                    email_success, email_msg = send_email(
-                        to_email=user_email,
-                        subject="AI日記が完成しました",
-                        content=html_content
-                    )
-                    email_sent = email_success
-                    email_message = email_msg
-                    
-                    if email_success:
-                        app.logger.info(f"Email sent successfully to: {user_email}")
-                    else:
-                        app.logger.warning(f"Email sending failed: {email_msg}")
-                elif not user_email:
-                    email_message = "ユーザーのメールアドレスが見つかりません"
-                    app.logger.warning(f"No email address found for user: {user_id}")
-                elif not html_content:
-                    email_message = "HTMLコンテンツが生成されていないためメール送信をスキップしました"
-                    app.logger.warning("HTML content is empty, skipping email sending")
-                    
-            except Exception as email_error:
-                # メール送信エラーは警告ログに記録するが、処理は継続
-                app.logger.warning(f"Email sending failed: {str(email_error)}")
-                email_sent = False
-                email_message = f"メール送信エラー: {str(email_error)}"
+            email_sent, email_message = process_diary_email_sending(
+                user_info=user_info,
+                html_content=html_content,
+                user_id=user_id
+            )
             
             # 成功レスポンス
             response_data = {
@@ -459,156 +271,6 @@ def generate_diary_endpoint():
             f"日記生成処理中にエラーが発生しました: {str(e)}"
         )
         return jsonify(error_response), status_code
-
-@app.route("/get-user-and-conversation", methods=["POST"])
-@handle_exceptions
-def get_user_and_conversation():
-    """
-    メインAPI: ユーザー情報取得→会話履歴取得の統合エンドポイント
-    userIDからユーザー情報を取得し、その後userIDとcallIDで会話履歴を取得する
-    
-    注意: 日記生成も含む完全な処理には /generate-diary エンドポイントを使用してください
-    """
-    data = request.get_json()
-    
-    # リクエストデータの検証
-    is_valid, error_response = validate_request_data(data, ["userID", "callID"])
-    if not is_valid:
-        return jsonify(error_response[0]), error_response[1]
-    
-    user_id = data["userID"]
-    call_id = data["callID"]
-    
-    # Step 1: ユーザー情報取得
-    user_info = get_user_info(user_id)
-    if not user_info:
-        error_response, status_code = create_error_response(
-            "USER_NOT_FOUND", 
-            "ユーザーが見つかりませんでした"
-        )
-        return jsonify(error_response), status_code
-    
-    # Step 2: 会話履歴取得 (サブコレクション構造を使用)
-    service = SubcollectionConversationHistoryService()
-    success, conversation_data, error_code = service.get_conversation_history(user_id, call_id)
-    
-    if not success:
-        status_code = get_http_status_from_error_code(error_code)
-        error_response, _ = create_error_response(error_code, "会話履歴の取得に失敗しました")
-        return jsonify(error_response), status_code
-    
-    # 成功レスポンス
-    response_data = {
-        "userID": user_id,
-        "callID": call_id,
-        "userInfo": user_info,
-        "conversationHistory": conversation_data
-    }
-    
-    return jsonify(create_success_response(response_data, "ユーザー情報と会話履歴を正常に取得しました"))
-
-# ===============================
-# 互換性のための個別エンドポイント (レガシー)
-# ===============================
-
-@app.route("/get-user-info", methods=["POST"])
-@handle_exceptions
-def get_user_info_endpoint():
-    """ユーザー情報取得エンドポイント (レガシー互換性のため残存)"""
-    data = request.get_json()
-    
-    is_valid, error_response = validate_request_data(data, ["userID", "callID"])
-    if not is_valid:
-        return jsonify(error_response[0]), error_response[1]
-    
-    user_id = data["userID"]
-    call_id = data["callID"]
-    
-    user_info = get_user_info(user_id)
-    if user_info:
-        response_data = {
-            "userID": user_id,
-            "callID": call_id,
-            "userInfo": user_info
-        }
-        return jsonify(create_success_response(response_data))
-    else:
-        error_response, status_code = create_error_response(
-            "USER_NOT_FOUND", 
-            "ユーザーが見つかりませんでした"
-        )
-        return jsonify(error_response), status_code
-
-@app.route("/get-conversation-history-v2", methods=["POST"])
-@handle_exceptions
-def get_conversation_history_v2_endpoint():
-    """会話履歴取得エンドポイント (レガシー互換性のため残存)"""
-    data = request.get_json()
-    
-    is_valid, error_response = validate_request_data(data, ["userID", "callID"])
-    if not is_valid:
-        return jsonify(error_response[0]), error_response[1]
-    
-    user_id = data["userID"]
-    call_id = data["callID"]
-    
-    service = SubcollectionConversationHistoryService()
-    success, response_data, error_code = service.get_conversation_history(user_id, call_id)
-    
-    if success:
-        return jsonify(create_success_response(response_data))
-    else:
-        status_code = get_http_status_from_error_code(error_code)
-        error_response, _ = create_error_response(error_code, "会話履歴の取得に失敗しました")
-        return jsonify(error_response), status_code
-
-@app.route("/get-user-calls", methods=["POST"])
-@handle_exceptions
-def get_user_calls_endpoint():
-    """指定ユーザーのすべての会話履歴取得エンドポイント"""
-    data = request.get_json()
-    
-    is_valid, error_response = validate_request_data(data, ["userID"])
-    if not is_valid:
-        return jsonify(error_response[0]), error_response[1]
-    
-    user_id = data["userID"]
-    
-    service = SubcollectionConversationHistoryService()
-    success, response_data, error_code = service.get_user_all_calls(user_id)
-    
-    if success:
-        return jsonify(create_success_response(response_data))
-    else:
-        status_code = get_http_status_from_error_code(error_code)
-        error_response, _ = create_error_response(error_code, "会話履歴の取得に失敗しました")
-        return jsonify(error_response), status_code
-
-# ===============================
-# 非推奨エンドポイント (互換性のためのみ)
-# ===============================
-
-@app.route("/get-conversation-history", methods=["POST"])
-@handle_exceptions
-def get_conversation_history_endpoint():
-    """会話履歴取得エンドポイント (非推奨 - v2を使用してください)"""
-    data = request.get_json()
-    
-    is_valid, error_response = validate_request_data(data, ["userID", "callID"])
-    if not is_valid:
-        return jsonify(error_response[0]), error_response[1]
-    
-    user_id = data["userID"]
-    call_id = data["callID"]
-    
-    result = get_conversation_history(user_id, call_id)
-    
-    if result["status"] == "success":
-        return jsonify(result), 200
-    else:
-        error_code = result.get("error_code", "UNKNOWN_ERROR")
-        status_code = get_http_status_from_error_code(error_code)
-        return jsonify(result), status_code
 
 if __name__ == "__main__":
     print("AI Diary Service starting...")

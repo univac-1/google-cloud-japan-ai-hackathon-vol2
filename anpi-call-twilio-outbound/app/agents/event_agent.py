@@ -36,6 +36,7 @@ class EventAgent:
             }
         """
         try:
+            logger.info("### イベント情報の提案開始 ###")
             # 入力データを検証
             user_data = input_data.get("user")
             if not user_data:

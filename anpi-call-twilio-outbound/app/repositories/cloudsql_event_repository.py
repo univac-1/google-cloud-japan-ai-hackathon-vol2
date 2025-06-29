@@ -134,6 +134,7 @@ class CloudSQLEventRepository:
                     .limit(max_count)
                 )
                 events = result.scalars().all()
+                logger.info(events)
 
                 return [self._to_event_model(event) for event in events]
         except Exception as e:

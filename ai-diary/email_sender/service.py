@@ -74,10 +74,6 @@ def process_diary_email_sending(user_info: dict, html_content: str, user_id: str
         # ユーザー情報からメールアドレスを取得
         user_email = user_info.get('email')
         
-        # ローカル動作確認用の固定メールアドレス
-        if user_id == "4CC0CA6A-657C-4253-99FF-C19219D30AE2":
-            user_email = "5jpbnd@gmail.com"
-        
         # メールアドレスとHTMLコンテンツの検証
         if not user_email:
             message = "ユーザーのメールアドレスが見つかりません"

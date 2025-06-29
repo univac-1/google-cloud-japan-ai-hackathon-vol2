@@ -66,10 +66,6 @@ class SubcollectionConversationHistoryService:
             
             call_data = call_doc.to_dict()
             
-            # 念のためuserIDの照合（データ整合性チェック）
-            if call_data.get('userID') != user_id:
-                return False, None, "USER_MISMATCH"
-            
             return True, call_data, "SUCCESS"
             
         except Exception as e:

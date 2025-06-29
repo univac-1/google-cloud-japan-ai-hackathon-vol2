@@ -38,6 +38,9 @@ def generate_diary_endpoint():
         user_id = data["userID"]
         call_id = data["callID"]
         
+        app.logger.info(f"user_id:{user_id}")
+        app.logger.info(f"call_id:{call_id}")
+        
         # ユーザー情報取得
         user_info = get_user_info(user_id)
         if not user_info:

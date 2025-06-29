@@ -1,23 +1,21 @@
 # AI Diary Entry Generator
 
-Gemini APIを使用してユーザー情報と会話履歴から家族向けの日記風文章を生成する機能です。
-
-## 概要
-
-高齢者の安否確認アプリの会話データを元に、家族が読んで安心できる温かみのある日記風の文章を自動生成します。
+Gemini APIを使用してユーザー情報と会話履歴から家族向けの日記風文章を生成します。
 
 ## 機能
 
-- **日記生成**: ユーザー情報と会話履歴から日記風の文章を生成
-- **家族向け**: 家族が読んで安心できる内容に調整
-- **温かみのある文体**: 敬語を使わず親しみやすい表現
-- **プライバシー配慮**: センシティブな情報を適切に処理
+- ユーザー情報と会話履歴から日記風文章を生成
+- 家族が読んで安心できる温かみのある文体
+- プライバシーに配慮した内容調整
 
-## セットアップ
+## 使用方法
 
-### 1. 必要なライブラリのインストール
+```python
+from create_diary_entry import DiaryGenerator
 
-```bash
+generator = DiaryGenerator()
+success, diary_text, error = generator.generate_diary_entry(user_info, conversation_data)
+```
 pip install google-genai
 ```
 

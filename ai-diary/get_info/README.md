@@ -1,22 +1,24 @@
-# AI Diary Get Info Package
+# User Info Service
 
-ユーザー情報取得処理パッケージ
+ユーザー情報取得処理モジュール
 
-## 概要
+## 機能
 
-- userIDをもとにRDBからユーザー情報を取得する処理を提供
-- anpi-call-dbで作成されたDBに接続してユーザー情報を取得
-- **処理ロジックのみを含むパッケージ**（APIエンドポイントは`ai-diary/main.py`に配置）
+- userIDをもとにRDBからユーザー情報を取得
+- Cloud SQL（MySQL）への接続とクエリ実行
+- 安定したDB接続処理の提供
 
-## パッケージ構成
+## ファイル構成
 
-```
-get-info/
-├── __init__.py          # パッケージ初期化
-├── db_connection.py     # DB接続処理
-├── user_service.py      # ユーザー情報取得処理
-├── test_service.py      # テストスクリプト
-└── README.md           # このファイル
+- `db_connection.py` - DB接続処理
+- `user_service.py` - ユーザー情報取得処理
+
+## 使用方法
+
+```python
+from get_info.user_service import get_user_info
+
+user_info = get_user_info(user_id)
 ```
 
 ## 使用方法

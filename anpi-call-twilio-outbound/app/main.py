@@ -192,6 +192,7 @@ async def handle_media_stream(websocket: WebSocket):
     last_assistant_item = None
     is_running = True
     user_id = None  # user_idを保持
+    call_sid = None
 
     # Create CallAgent instance - user_idは後でstartイベントで設定
     call_agent = CallAgent()
@@ -202,7 +203,7 @@ async def handle_media_stream(websocket: WebSocket):
 
     async def receive_from_twilio():
         """Receive audio data from Twilio and send it to the OpenAI Realtime API."""
-        nonlocal stream_sid, latest_media_timestamp, is_running, user_id
+        nonlocal stream_sid, latest_media_timestamp, is_running, user_id, call_sid
         try:
             async for message in websocket.iter_text():
                 data = json.loads(message)
@@ -346,7 +347,7 @@ async def handle_media_stream(websocket: WebSocket):
         # 通話終了後に自動的に通話チェックを実行（非同期・結果待たず）
         if user_id:
             asyncio.create_task(trigger_call_check(user_id))
-            generate_diary(user_id, stream_sid)
+            generate_diary(user_id, call_sid)
         else:
             logger.warning("user_idが設定されていないため通話チェックをスキップします")
 

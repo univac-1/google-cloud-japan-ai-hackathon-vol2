@@ -6,7 +6,7 @@ steps:
         "build",
         "-t",
         "asia-northeast1-docker.pkg.dev/$PROJECT_ID/ai-diary/ai-diary",
-        ".",
+        "./ai-diary",
       ]
 
   # Artifact Registryにプッシュ

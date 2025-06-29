@@ -131,18 +131,7 @@ class ConversationHistoryService:
                     'user_info': user_info
                 }
             
-            # 3. ユーザーIDと会話履歴のユーザーIDが一致するかチェック
-            if conversation.get('user_id') != user_id:
-                return {
-                    'status': 'error',
-                    'error_code': 'USER_MISMATCH',
-                    'message': f'callID {call_id} はユーザーID {user_id} の会話ではありません',
-                    'user_id': user_id,
-                    'call_id': call_id,
-                    'user_info': user_info
-                }
-            
-            # 4. 成功レスポンス
+            # 3. 成功レスポンス
             return {
                 'status': 'success',
                 'user_id': user_id,

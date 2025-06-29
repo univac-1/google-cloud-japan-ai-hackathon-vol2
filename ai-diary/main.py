@@ -60,22 +60,22 @@ def generate_diary_endpoint():
         try:
             gender = user_info.get('gender', 'unknown')
             illustration_url = generate_illustration(diary_text, user_id, gender, call_id)
-        except:
-            pass  # 挿絵生成失敗は無視
+        except Exception as e:
+            app.logger.warning(f"Illustration generation failed: {type(e).__name__}")
         
         # HTML生成（エラーでも継続）
         html_content = None
         try:
             html_content = generate_html_page(diary_text, user_id, call_id)
-        except:
-            pass  # HTML生成失敗は無視
+        except Exception as e:
+            app.logger.warning(f"HTML generation failed: {type(e).__name__}")
         
         # メール送信（エラーでも継続）
         email_sent, email_message = False, "Not attempted"
         try:
             email_sent, email_message = process_diary_email_sending(user_info, html_content, user_id)
-        except:
-            pass  # メール送信失敗は無視
+        except Exception as e:
+            app.logger.warning(f"Email sending failed: {type(e).__name__}")
         
         return {
             "status": "success",
